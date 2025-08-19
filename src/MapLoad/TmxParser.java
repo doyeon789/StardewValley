@@ -11,6 +11,8 @@ import java.io.File;
 import java.util.*;
 import java.util.List;
 
+import  Character.SpriteRenderer;
+
 public class TmxParser {
     // 타일셋 정보를 저장하는 클래스
     static class Tileset {
@@ -70,6 +72,8 @@ public class TmxParser {
     private JFrame frame;
     private TileMapCanvas canvas;
 
+    private SpriteRenderer sprite;
+
     public TmxParser() {
         tilesets = new ArrayList<>();
         layers = new ArrayList<>();
@@ -84,16 +88,38 @@ public class TmxParser {
     }
 
     private void initializeUI() {
+        // 스프라이트 생성
+        sprite = new SpriteRenderer();
+        sprite.setPosition(200, 150); // 초기 위치 설정
+
         frame = new JFrame("TMX 타일맵 뷰어 (최적화됨)");
         frame.setResizable(false);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-
         canvas = new TileMapCanvas();
-        canvas.setPreferredSize(new Dimension(1200, 780)); // canvas 크기 지정
+        canvas.setPreferredSize(new Dimension(1200, 780));
         canvas.setBackground(Color.BLACK);
         canvas.setOpaque(true);
+        canvas.requestFocusInWindow();
 
+        // 키보드 이벤트 리스너 추가
+        canvas.addKeyListener(new java.awt.event.KeyAdapter() {
+            @Override
+            public void keyPressed(java.awt.event.KeyEvent e) {
+                String key = java.awt.event.KeyEvent.getKeyText(e.getKeyCode()).toLowerCase();
+                sprite.handleKeyPressed(key);
+                canvas.repaint(); // 화면 업데이트
+            }
+
+            @Override
+            public void keyReleased(java.awt.event.KeyEvent e) {
+                String key = java.awt.event.KeyEvent.getKeyText(e.getKeyCode()).toLowerCase();
+                sprite.handleKeyReleased(key);
+                canvas.repaint(); // 화면 업데이트
+            }
+        });
+
+        // canvas만 추가 (스프라이트는 canvas 위에 그려짐)
         frame.add(canvas);
     }
 
@@ -129,6 +155,10 @@ public class TmxParser {
         frame.pack();
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
+
+        SwingUtilities.invokeLater(() -> {
+            canvas.requestFocusInWindow();
+        });
     }
 
     // resource 디렉토리의 모든 PNG 파일을 재귀적으로 미리 로드
@@ -310,13 +340,10 @@ public class TmxParser {
                 System.out.println("레이어 추가됨: " + layer.name + " (" + layer.width + "x" + layer.height + ")");
             }
 
-            // 타일셋 캐시 구축
             buildTilesetCache();
 
-            // 타일 이미지 미리 캐싱 (백그라운드에서)
             preloadTileImages();
 
-            // UI 업데이트
             SwingUtilities.invokeLater(() -> {
                 canvas.revalidate();
                 canvas.repaint();
@@ -334,7 +361,6 @@ public class TmxParser {
         }
     }
 
-    // 타일셋 캐시 구축 (GID 범위별로 매핑)
     private void buildTilesetCache() {
         for (Tileset tileset : tilesets) {
             for (int i = 0; i < tileset.tileCount; i++) {
@@ -345,7 +371,6 @@ public class TmxParser {
         System.out.println("타일셋 캐시 구축 완료: " + gidToTilesetCache.size() + " entries");
     }
 
-    // 타일 이미지 미리 캐싱 (백그라운드 스레드에서 실행)
     private void preloadTileImages() {
         new Thread(() -> {
             System.out.println("타일 이미지 캐싱 시작...");
@@ -373,19 +398,17 @@ public class TmxParser {
         }).start();
     }
 
-    // 특정 GID에 해당하는 타일셋 찾기 (최적화됨)
     private Tileset findTilesetForGid(int gid) {
         return gidToTilesetCache.get(gid);
     }
 
-    // 새 타일 이미지 생성 (캐시되지 않은 경우에만 호출)
     private BufferedImage createTileImage(int gid) {
         if (gid == 0) return null;
 
         Tileset tileset = findTilesetForGid(gid);
         if (tileset == null || tileset.image == null) return null;
 
-        // 타일셋 내부 캐시 확인
+
         BufferedImage cachedTile = tileset.tileCache.get(gid);
         if (cachedTile != null) return cachedTile;
 
@@ -396,7 +419,7 @@ public class TmxParser {
 
         try {
             BufferedImage tileImage = tileset.image.getSubimage(tileX, tileY, tileset.tileWidth, tileset.tileHeight);
-            // 타일셋 내부 캐시에 저장
+
             tileset.tileCache.put(gid, tileImage);
             return tileImage;
         } catch (Exception e) {
@@ -404,19 +427,15 @@ public class TmxParser {
         }
     }
 
-    // GID로부터 타일 이미지 가져오기 (최적화됨)
     private BufferedImage getTileImage(int gid) {
         if (gid == 0) return null;
 
-        // 글로벌 캐시에서 먼저 확인
         BufferedImage cachedImage = globalTileCache.get(gid);
         if (cachedImage != null) return cachedImage;
 
-        // 캐시에 없으면 생성
         return createTileImage(gid);
     }
 
-    // 최적화된 렌더링 (스크롤 없이 전체 맵 렌더링)
     private void renderTileMapOptimized(Graphics g) {
         Graphics2D g2d = (Graphics2D) g;
         g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -435,7 +454,7 @@ public class TmxParser {
                     if (index >= layer.data.length) continue;
 
                     int gid = layer.data[index];
-                    if (gid == 0) continue; // 빈 타일
+                    if (gid == 0) continue;
 
                     BufferedImage tileImage = getTileImage(gid);
                     if (tileImage != null) {
@@ -445,6 +464,10 @@ public class TmxParser {
                     }
                 }
             }
+        }
+
+        if (sprite != null) {
+            sprite.render(g2d);
         }
     }
 }
