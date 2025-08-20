@@ -52,31 +52,34 @@ public class TmxParser {
     private int mapHeight;                      /// 맵 세로 크기 (타일 개수)
     private int tileWidth;                      /// 개별 타일의 가로 크기 (픽셀)
     private int tileHeight;                     /// 개별 타일의 세로 크기 (픽셀)
-    private List<Tileset> tilesets;             /// 타일셋 목록
-    private List<Layer> layers;                 /// 레이어 목록
+    private final List<Tileset> tilesets;             /// 타일셋 목록
+    private final List<Layer> layers;                 /// 레이어 목록
 
     /// 모든 PNG 이미지를 저장하는 맵 (파일명 -> 이미지)
-    private Map<String, BufferedImage> preloadedImages;
+    private final Map<String, BufferedImage> preloadedImages;
 
     /// 성능 최적화를 위한 캐시
-    private Map<Integer, Tileset> gidToTilesetCache;     /// GID -> Tileset 매핑 캐시
-    private Map<Integer, BufferedImage> globalTileCache; /// GID -> 타일이미지 캐시
+    private final Map<Integer, Tileset> gidToTilesetCache;     /// GID -> Tileset 매핑 캐시
+    private final Map<Integer, BufferedImage> globalTileCache; /// GID -> 타일이미지 캐시
 
     /** ========== GUI 컴포넌트 ========== **/
-    private JFrame frame;                       /// 메인 윈도우
-    private TileMapCanvas canvas;               /// 타일맵 렌더링 캔버스
+    private final JFrame frame;                       /// 메인 윈도우
+    private final TileMapCanvas canvas;               /// 타일맵 렌더링 캔버스
 
     /** ========== 게임 시스템 ========== **/
-    private SpriteRenderer sprite;              /// 플레이어 캐릭터 스프라이트
-    private Camera camera;                      /// 카메라 시스템
+    private final SpriteRenderer sprite;              /// 플레이어 캐릭터 스프라이트
+    private final Camera camera;                      /// 카메라 시스템
 
     private static final int TILE_SCALE = 3;   /// 타일 확대 비율
 
-    /// 부드러운 이동을 위한 게임 루프 변수들
-    private javax.swing.Timer gameTimer;       /// 60 FPS 게임 루프 타이머
-    private Set<String> keysPressed = new HashSet<>();  /// 현재 눌린 키들
+    /// 60 FPS 게임 루프 타이머
+    private final Set<String> keysPressed = new HashSet<>();  /// 현재 눌린 키들
     private static final int GAME_FPS = 60;             /// 게임 FPS (초당 프레임)
     private static final int MOVE_SPEED = 5;            /// 픽셀 단위 이동 속도
+
+    /// 맵 중앙 정렬을 위한 오프셋
+    private int mapOffsetX = 0;
+    private int mapOffsetY = 0;
 
     /// 1. 컬렉션 초기화
     /// 2. PNG 파일들을 미리 로3
@@ -133,7 +136,8 @@ public class TmxParser {
     /// 60 FPS로 동작하는 게임 루프 시작
     /// 매 프레임마다 이동 업데이트 및 화면 갱신
     private void startGameLoop() {
-        gameTimer = new javax.swing.Timer(1000 / GAME_FPS, new ActionListener() {
+        /// 부드러운 이동을 위한 게임 루프 변수들
+        javax.swing.Timer gameTimer = new javax.swing.Timer(1000 / GAME_FPS, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 updateMovement();
@@ -175,10 +179,35 @@ public class TmxParser {
             int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
             int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
-            if (newX >= 0 && newX + sprite.getWidth() <= mapPixelWidth &&
-                    newY >= 0 && newY + sprite.getHeight() <= mapPixelHeight) {
+            // 맵 영역 내에서만 이동 가능 (오프셋 고려)
+            int minX = mapOffsetX;
+            int minY = mapOffsetY;
+            int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
+            int maxY = mapOffsetY + mapPixelHeight - sprite.getHeight();
+
+            // 경계 내에서만 이동 허용
+            if (newX >= minX && newX <= maxX && newY >= minY && newY <= maxY) {
                 sprite.setPosition(newX, newY);
             }
+        }
+    }
+
+    /// 맵 중앙 정렬 오프셋 계산
+    private void calculateMapOffset() {
+        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+
+        // 맵이 화면보다 작은 경우 중앙 정렬
+        if (mapPixelWidth < canvas.getWidth()) {
+            mapOffsetX = (canvas.getWidth() - mapPixelWidth) / 2;
+        } else {
+            mapOffsetX = 0;
+        }
+
+        if (mapPixelHeight < canvas.getHeight()) {
+            mapOffsetY = (canvas.getHeight() - mapPixelHeight) / 2;
+        } else {
+            mapOffsetY = 0;
         }
     }
 
@@ -186,8 +215,7 @@ public class TmxParser {
     public void loadDefaultTmxFile(String Mappath) {
 
         File file = new File(Mappath);
-        if (file.exists()) {
-            System.out.println("기본 TMX 파일 발견: " + Mappath);
+        if (file.exists()){
             if (loadTMX(Mappath)) {
                 frame.setTitle("TMX 타일맵 뷰어 - " + file.getName());
                 return;
@@ -216,8 +244,13 @@ public class TmxParser {
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
 
+        // 창이 표시된 후 오프셋 재계산 (canvas 크기가 확정된 후)
         SwingUtilities.invokeLater(() -> {
+            if (mapWidth > 0 && mapHeight > 0) {
+                calculateMapOffset();
+            }
             canvas.requestFocusInWindow();
+            canvas.repaint();
         });
     }
 
@@ -299,9 +332,7 @@ public class TmxParser {
         // 확장자가 없으면 .png를 붙여서 찾기
         if (!fileName.contains(".")) {
             image = preloadedImages.get(fileName + ".png");
-            if (image != null) {
-                return image;
-            }
+            return image;
         }
 
         return null;
@@ -336,17 +367,16 @@ public class TmxParser {
             tileWidth = Integer.parseInt(mapElement.getAttribute("tilewidth"));
             tileHeight = Integer.parseInt(mapElement.getAttribute("tileheight"));
 
-            System.out.println("맵 로딩: " + mapWidth + "x" + mapHeight + " (타일 크기: " + tileWidth + "x" + tileHeight + ")");
+            // 맵 중앙 정렬 오프셋 계산
+            calculateMapOffset();
 
             // 카메라에 맵 크기 설정
             int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
             int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
             camera.setMapBounds(mapPixelWidth, mapPixelHeight);
 
-            // 플레이어를 맵 중앙에 배치
-            int centerX = mapPixelWidth / 2 - sprite.getWidth() / 2;
-            int centerY = mapPixelHeight / 2 - sprite.getHeight() / 2;
-            sprite.setPosition(centerX, centerY);
+            // 플레이어를 맵 중앙에 기본 배치 (나중에 setPlayerStartPosition으로 변경 가능)
+            setPlayerStartPosition(10, 5);
 
             // 타일셋 파싱
             NodeList tilesetNodes = doc.getElementsByTagName("tileset");
@@ -479,7 +509,7 @@ public class TmxParser {
             }
 
             System.out.println("타일 이미지 캐싱 완료: " + cachedCount + " tiles");
-            SwingUtilities.invokeLater(() -> canvas.repaint());
+            SwingUtilities.invokeLater(canvas::repaint);
         }).start();
     }
 
@@ -542,48 +572,52 @@ public class TmxParser {
         g2d.setColor(Color.BLACK);
         g2d.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
 
-        // 카메라 업데이트
-        camera.followPlayer(sprite);
+        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
-        // 화면에 보이는 타일 범위 계산 (컬링 최적화)
-        int scaledTileWidth = tileWidth * TILE_SCALE;
-        int scaledTileHeight = tileHeight * TILE_SCALE;
+        // 맵이 화면보다 큰 경우에만 카메라 추적
+        if (mapPixelWidth > canvas.getWidth() || mapPixelHeight > canvas.getHeight()) {
+            // 카메라 업데이트
+            camera.followPlayer(sprite);
 
-        int startTileX = Math.max(0, camera.getX() / scaledTileWidth);
-        int startTileY = Math.max(0, camera.getY() / scaledTileHeight);
-        int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 1);
-        int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 1);
+            // 화면에 보이는 타일 범위 계산 (컬링 최적화)
+            int scaledTileWidth = tileWidth * TILE_SCALE;
+            int scaledTileHeight = tileHeight * TILE_SCALE;
 
-        // 레이어별 렌더링
-        for (Layer layer : layers) {
-            if (!layer.visible) continue;
+            int startTileX = Math.max(0, camera.getX() / scaledTileWidth);
+            int startTileY = Math.max(0, camera.getY() / scaledTileHeight);
+            int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 1);
+            int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 1);
 
-            for (int y = startTileY; y <= endTileY; y++) {
-                for (int x = startTileX; x <= endTileX; x++) {
-                    int index = y * layer.width + x;
-                    if (index >= layer.data.length) continue;
+            // 레이어별 렌더링
+            for (Layer layer : layers) {
+                if (!layer.visible) continue;
 
-                    int gid = layer.data[index];
-                    if (gid == 0) continue;
+                for (int y = startTileY; y <= endTileY; y++) {
+                    for (int x = startTileX; x <= endTileX; x++) {
+                        int index = y * layer.width + x;
+                        if (index >= layer.data.length) continue;
 
-                    BufferedImage tileImage = getTileImage(gid);
-                    if (tileImage != null) {
-                        // 월드 좌표
-                        int worldX = x * scaledTileWidth;
-                        int worldY = y * scaledTileHeight;
+                        int gid = layer.data[index];
+                        if (gid == 0) continue;
 
-                        // 화면 좌표로 변환
-                        int screenX = camera.worldToScreenX(worldX);
-                        int screenY = camera.worldToScreenY(worldY);
+                        BufferedImage tileImage = getTileImage(gid);
+                        if (tileImage != null) {
+                            // 월드 좌표
+                            int worldX = x * scaledTileWidth;
+                            int worldY = y * scaledTileHeight;
 
-                        g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+                            // 화면 좌표로 변환
+                            int screenX = camera.worldToScreenX(worldX);
+                            int screenY = camera.worldToScreenY(worldY);
+
+                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+                        }
                     }
                 }
             }
-        }
 
-        // 플레이어 렌더링
-        if (sprite != null) {
+            // 플레이어 렌더링 (카메라 좌표계)
             // 플레이어의 화면 좌표 계산
             int playerScreenX = camera.worldToScreenX(sprite.getX());
             int playerScreenY = camera.worldToScreenY(sprite.getY());
@@ -598,14 +632,240 @@ public class TmxParser {
 
             // 원래 위치 복원
             sprite.setPosition(originalX, originalY);
+
+        } else {
+            // 맵이 화면보다 작은 경우 - 고정된 중앙 위치에서 렌더링
+            int scaledTileWidth = tileWidth * TILE_SCALE;
+            int scaledTileHeight = tileHeight * TILE_SCALE;
+
+            // 레이어별 렌더링 (모든 타일 렌더링)
+            for (Layer layer : layers) {
+                if (!layer.visible) continue;
+
+                for (int y = 0; y < mapHeight; y++) {
+                    for (int x = 0; x < mapWidth; x++) {
+                        int index = y * layer.width + x;
+                        if (index >= layer.data.length) continue;
+
+                        int gid = layer.data[index];
+                        if (gid == 0) continue;
+
+                        BufferedImage tileImage = getTileImage(gid);
+                        if (tileImage != null) {
+                            // 중앙 정렬된 위치에 타일 렌더링
+                            int screenX = mapOffsetX + x * scaledTileWidth;
+                            int screenY = mapOffsetY + y * scaledTileHeight;
+
+                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+                        }
+                    }
+                }
+            }
+
+            // 플레이어 렌더링 (고정된 위치)
+            sprite.render(g2d);
+        }
+
+        // 정보 UI
+        renderUI(g2d);
+    }
+
+    /// 플레이어 초기 위치 설정 (타일 좌표 기준)
+    public void setPlayerStartPosition(int tileX, int tileY) {
+        if (mapWidth > 0 && mapHeight > 0) {
+            // 타일 좌표를 픽셀 좌표로 변환
+            int pixelX = mapOffsetX + tileX * tileWidth * TILE_SCALE;
+            int pixelY = mapOffsetY + tileY * tileHeight * TILE_SCALE;
+
+            // 맵 경계 내에 있는지 확인
+            int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+            int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+
+            int minX = mapOffsetX;
+            int minY = mapOffsetY;
+            int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
+            int maxY = mapOffsetY + mapPixelHeight - sprite.getHeight();
+
+            // 경계 내로 제한
+            pixelX = Math.max(minX, Math.min(maxX, pixelX));
+            pixelY = Math.max(minY, Math.min(maxY, pixelY));
+
+            sprite.setPosition(pixelX, pixelY);
+            System.out.println("플레이어 위치 설정: 타일(" + tileX + ", " + tileY + ") -> 픽셀(" + pixelX + ", " + pixelY + ")");
         }
     }
 
-    /** ========== Getter 메서드들 ========== **/
+    /// UI 렌더링 (상세한 디버그 정보 포함)
+    private void renderUI(Graphics2D g2d) {
+        // UI 배경 설정
+        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        // UI 폰트 설정
+        Font uiFont = new Font("Arial", Font.BOLD, 12);
+        g2d.setFont(uiFont);
+
+        // 메인 정보 패널 (왼쪽 상단)
+        renderMainInfoPanel(g2d);
+
+        // 맵 상세 정보 패널 (오른쪽 상단)
+        renderMapDetailPanel(g2d);
+
+        // 시스템 정보 패널 (왼쪽 하단)
+        renderSystemInfoPanel(g2d);
+    }
+
+    /// 메인 정보 패널 (플레이어, 카메라, 기본 맵 정보)
+    private void renderMainInfoPanel(Graphics2D g2d) {
+        int panelWidth = 280;
+        int panelHeight = 100;
+
+        // 반투명 배경 패널
+        g2d.setColor(new Color(0, 0, 0, 150));
+        g2d.fillRect(10, 10, panelWidth, panelHeight);
+
+        // 패널 테두리
+        g2d.setColor(new Color(100, 100, 100));
+        g2d.drawRect(10, 10, panelWidth, panelHeight);
+
+        // UI 텍스트 색상
+        g2d.setColor(Color.WHITE);
+
+        int yOffset = 25;
+        int lineHeight = 16;
+
+        // 플레이어 위치 (픽셀)
+        g2d.drawString(String.format("Player Position: (%d, %d)", sprite.getX(), sprite.getY()), 15, yOffset);
+        yOffset += lineHeight;
+
+        // 플레이어가 위치한 타일
+        int playerTileX = (sprite.getX() - mapOffsetX) / (tileWidth * TILE_SCALE);
+        int playerTileY = (sprite.getY() - mapOffsetY) / (tileHeight * TILE_SCALE);
+        g2d.drawString(String.format("Player Tile: (%d, %d)", playerTileX, playerTileY), 15, yOffset);
+        yOffset += lineHeight;
+
+        // 카메라 위치
+        g2d.drawString(String.format("Camera: (%d, %d)", camera.getX(), camera.getY()), 15, yOffset);
+        yOffset += lineHeight;
+
+        // 맵 크기 정보
+        g2d.drawString(String.format("Map Size: %d x %d tiles", mapWidth, mapHeight), 15, yOffset);
+        yOffset += lineHeight;
+
+        // 타일 크기 정보
+        g2d.drawString(String.format("Tile Size: %dx%d pixels", tileWidth, tileHeight), 15, yOffset);
+    }
+
+    /// 맵 상세 정보 패널 (오른쪽 상단)
+    private void renderMapDetailPanel(Graphics2D g2d) {
+        int panelWidth = 300;
+        int panelHeight = 140;
+        int panelX = canvas.getWidth() - panelWidth - 10;
+        int panelY = 10;
+
+        // 반투명 배경 패널
+        g2d.setColor(new Color(0, 0, 0, 150));
+        g2d.fillRect(panelX, panelY, panelWidth, panelHeight);
+
+        // 패널 테두리
+        g2d.setColor(new Color(100, 100, 100));
+        g2d.drawRect(panelX, panelY, panelWidth, panelHeight);
+
+        // UI 텍스트 색상
+        g2d.setColor(Color.CYAN);
+
+        int yOffset = panelY + 15;
+        int lineHeight = 14;
+
+        // 맵 픽셀 크기
+        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+
+        g2d.drawString(String.format("Map Pixel Size: %dx%d", mapPixelWidth, mapPixelHeight), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        g2d.drawString(String.format("Canvas Size: %dx%d", canvas.getWidth(), canvas.getHeight()), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        g2d.drawString(String.format("Map Offset: X=%d, Y=%d", mapOffsetX, mapOffsetY), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        g2d.drawString(String.format("Tile Scale: x%d", TILE_SCALE), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        // 타일셋 정보
+        g2d.setColor(Color.YELLOW);
+        g2d.drawString(String.format("Tilesets: %d loaded", tilesets.size()), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        // 레이어 정보
+        g2d.drawString(String.format("Layers: %d loaded", layers.size()), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        // 캐시 정보
+        g2d.setColor(Color.LIGHT_GRAY);
+        g2d.drawString(String.format("Tileset Cache: %d entries", gidToTilesetCache.size()), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        g2d.drawString(String.format("Tile Cache: %d entries", globalTileCache.size()), panelX + 5, yOffset);
+        yOffset += lineHeight;
+
+        g2d.drawString(String.format("Preloaded Images: %d files", preloadedImages.size()), panelX + 5, yOffset);
+    }
+
+    /// 시스템 정보 패널 (왼쪽 하단)
+    private void renderSystemInfoPanel(Graphics2D g2d) {
+        // 동적으로 패널 높이 계산 (타일셋 개수에 따라)
+        int lineHeight = 14;
+        int baseHeight = 40; // 기본 높이 (제목 + 여백)
+        int tilesetHeight = tilesets.size() * lineHeight; // 타일셋들의 높이
+        int keyHeight = keysPressed.isEmpty() ? 0 : lineHeight + 5; // 키 정보 높이
+
+        int panelWidth = 400;
+        int panelHeight = baseHeight + tilesetHeight + keyHeight;
+        int panelX = 10;
+        int panelY = canvas.getHeight() - panelHeight - 10;
+
+        // 반투명 배경 패널
+        g2d.setColor(new Color(0, 0, 0, 150));
+        g2d.fillRect(panelX, panelY, panelWidth, panelHeight);
+
+        // 패널 테두리
+        g2d.setColor(new Color(100, 100, 100));
+        g2d.drawRect(panelX, panelY, panelWidth, panelHeight);
+
+        // UI 텍스트 색상
+        g2d.setColor(Color.ORANGE);
+
+        int yOffset = panelY + 15;
+
+        // 타일셋 상세 정보 (모든 타일셋 표시)
+        if (!tilesets.isEmpty()) {
+            g2d.drawString("Tileset Details:", panelX + 5, yOffset);
+            yOffset += lineHeight;
+
+            // 모든 타일셋을 다 보여주기
+            for (Tileset ts : tilesets) {
+                g2d.setColor(Color.WHITE);
+                g2d.drawString(String.format("  %s (GID:%d, %dx%d, %d tiles)",
+                        ts.name, ts.firstGid, ts.tileWidth, ts.tileHeight, ts.tileCount), panelX + 10, yOffset);
+                yOffset += lineHeight;
+            }
+        }
+
+        // 현재 눌린 키 표시
+        if (!keysPressed.isEmpty()) {
+            yOffset += 5; // 약간의 여백
+            g2d.setColor(Color.GREEN);
+            g2d.drawString("Keys Pressed: " + String.join(", ", keysPressed), panelX + 5, yOffset);
+        }
+    }
+
     public Camera getCamera() { return camera; }           /// 카메라 객체 반환
     public SpriteRenderer getSprite() { return sprite; }   /// 스프라이트 객체 반환
     public int getMapWidth() { return mapWidth; }          /// 맵 가로 크기 반환 (타일 개수)
     public int getMapHeight() { return mapHeight; }        /// 맵 세로 크기 반환 (타일 개수)
     public int getTileWidth() { return tileWidth; }        /// 타일 가로 크기 반환 (픽셀)
     public int getTileHeight() { return tileHeight; }      /// 타일 세로 크기 반환 (픽셀)
+    public int getMapOffsetX() { return mapOffsetX; }      /// 맵 X 오프셋 반환
+    public int getMapOffsetY() { return mapOffsetY; }      /// 맵 Y 오프셋 반환
 }

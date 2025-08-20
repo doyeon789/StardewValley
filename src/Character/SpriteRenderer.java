@@ -95,7 +95,6 @@ public class SpriteRenderer {
     private void loadSpriteSheet(String imagePath) {
         try {
             spriteSheet = ImageIO.read(new File(imagePath));
-            System.out.println("스프라이트 시트 로드 완료: " + imagePath);
         } catch (IOException e) {
             System.err.println("스프라이트 시트를 로드할 수 없습니다: " + e.getMessage());
         }
