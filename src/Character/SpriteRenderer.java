@@ -19,6 +19,15 @@ public class SpriteRenderer {
     private BufferedImage pantsFrame;           /// 현재 바지 프레임
     private BufferedImage hairFrame;            /// 현재 머리카락 프레임
 
+    /** ========== 색상 설정 (HSB) ========== **/
+    private static final float HAIR_HUE = 0.08f;        // 머리카락 색조 (갈색)
+    private static final float HAIR_SATURATION = 0.8f;  // 머리카락 채도
+    private static final float HAIR_BRIGHTNESS = 0.6f;  // 머리카락 밝기
+
+    private static final float PANTS_HUE = 0.75f;       // 바지 색조 (보라색)
+    private static final float PANTS_SATURATION = 0.6f; // 바지 채도
+    private static final float PANTS_BRIGHTNESS = 0.5f; // 바지 밝기
+
     /** ========== 위치 및 크기 정보 ========== **/
     private int x = 0;                          // 스프라이트의 X 좌표
     private int y = 0;                          // 스프라이트의 Y 좌표
@@ -43,7 +52,8 @@ public class SpriteRenderer {
     /** ========== 애니메이션 시스템 ========== **/
     private Timer animationTimer;               /// 애니메이션 타이머 (190ms 간격)
     private boolean isAnimating = false;        /// 현재 애니메이션 중인지 여부
-    private int currentAnimFrame = 0;           /// 현재 애니메이션 프레임 (0 또는 1)
+    private int currentAnimFrame = 0;           /// 현재 애니메이션 프레임 인덱스
+    private int maxAnimFrames = 6;              /// 현재 애니메이션의 최대 프레임 수
 
     private int[] currentBaseFrames = {0, 0};   /// 현재 기본 애니메이션 프레임 배열 (몸체)
     private int[] currentArmFrames = {6, 6};    /// 현재 팔 애니메이션 프레임 배열
@@ -84,18 +94,18 @@ public class SpriteRenderer {
         try {
             spriteSheet = ImageIO.read(new File("resource/Characters/Farmer/farmer_base.png"));
             spriteSheetShirt = ImageIO.read(new File("resource/Characters/Farmer/shirts.png"));
-            spriteSheetPants = ImageIO.read(new File("resource/Characters/Farmer/pants.ghpng"));
+            spriteSheetPants = ImageIO.read(new File("resource/Characters/Farmer/pants.png"));
             spriteSheetHair = ImageIO.read(new File("resource/Characters/Farmer/hairstyles.png"));
         } catch (IOException e) {
             System.err.println("스프라이트 시트를 로드할 수 없습니다: " + e.getMessage());
         }
     }
 
-    /// 애니메이션 타이머 설정 (190ms 간격으로 프레임 전환)
+    /// 애니메이션 타이머 설정 (130ms 간격으로 프레임 전환)
     private void setupAnimation() {
-        animationTimer = new Timer(190, e -> {
+        animationTimer = new Timer(130, e -> {
             if (isAnimating) {
-                currentAnimFrame = (currentAnimFrame + 1) % 6;
+                currentAnimFrame = (currentAnimFrame + 1) % maxAnimFrames;
                 updateCurrentFrame();
             }
         });
@@ -158,17 +168,17 @@ public class SpriteRenderer {
             }
         }
 
-        // 셔츠 로드
+        // 셔츠 로드 (원본 색상 그대로 사용)
         loadClothingFrame(spriteSheetShirt, shirtFrameNum, SPRITE_WIDTH_Shirt, SPRITE_HEIGHT_Shirt,
                 flipHorizontal, "셔츠", (frame) -> shirtFrame = frame);
 
         // 바지 로드
         loadClothingFrame(spriteSheetPants, pantsFrameNum, SPRITE_WIDTH_Pants, SPRITE_HEIGHT_Pants,
-                flipHorizontal, "바지", (frame) -> pantsFrame = frame);
+                flipHorizontal, "바지", (frame) -> pantsFrame = applyHSBColor(frame, PANTS_HUE, PANTS_SATURATION, PANTS_BRIGHTNESS));
 
         // 머리카락 로드
         loadClothingFrame(spriteSheetHair, hairFrameNum, SPRITE_WIDTH_Hair, SPRITE_HEIGHT_Hair,
-                flipHorizontal, "머리카락", (frame) -> hairFrame = frame);
+                flipHorizontal, "머리카락", (frame) -> hairFrame = applyHSBColor(frame, HAIR_HUE, HAIR_SATURATION, HAIR_BRIGHTNESS));
     }
 
     /// 의류(셔츠, 바지, 머리카락) 프레임 로드를 위한 공통 메서드
@@ -205,6 +215,11 @@ public class SpriteRenderer {
         currentPantsFrames = pantsFrames.clone();
         currentHairFrames = hairFrames.clone();
         currentFlipped = flipped;
+
+        // 최대 프레임 수를 가장 긴 배열의 길이로 설정
+        maxAnimFrames = Math.max(Math.max(Math.max(Math.max(baseFrames.length, armFrames.length),
+                shirtFrames.length), pantsFrames.length), hairFrames.length);
+
         currentAnimFrame = 0;
         isAnimating = true;
 
@@ -225,6 +240,42 @@ public class SpriteRenderer {
         g2d.drawImage(image, image.getWidth(), 0, -image.getWidth(), image.getHeight(), null);
         g2d.dispose();
         return flipped;
+    }
+
+    /// HSB 색상을 적용하여 이미지를 색칠하는 메서드
+    private BufferedImage applyHSBColor(BufferedImage originalImage, float hue, float saturation, float brightness) {
+        if (originalImage == null) return null;
+
+        BufferedImage coloredImage = new BufferedImage(originalImage.getWidth(), originalImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Color targetColor = Color.getHSBColor(hue, saturation, brightness);
+
+        for (int x = 0; x < originalImage.getWidth(); x++) {
+            for (int y = 0; y < originalImage.getHeight(); y++) {
+                int pixel = originalImage.getRGB(x, y);
+                int alpha = (pixel >> 24) & 0xff;
+
+                if (alpha > 0) { // 투명하지 않은 픽셀만 처리
+                    // 원본 픽셀의 밝기를 가져옴
+                    int red = (pixel >> 16) & 0xff;
+                    int green = (pixel >> 8) & 0xff;
+                    int blue = pixel & 0xff;
+                    float[] hsb = Color.RGBtoHSB(red, green, blue, null);
+
+                    // 원본의 밝기와 타겟 밝기를 조합
+                    float finalBrightness = brightness * hsb[2];
+                    Color finalColor = Color.getHSBColor(hue, saturation, finalBrightness);
+
+                    // 알파 채널을 유지하면서 새로운 색상 적용
+                    int newRGB = (alpha << 24) | (finalColor.getRGB() & 0xffffff);
+                    coloredImage.setRGB(x, y, newRGB);
+                } else {
+                    // 투명한 픽셀은 그대로 유지
+                    coloredImage.setRGB(x, y, pixel);
+                }
+            }
+        }
+
+        return coloredImage;
     }
 
     /// 현재 눌린 키들을 확인하고 우선순위에 따라 애니메이션 결정
@@ -268,15 +319,15 @@ public class SpriteRenderer {
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
             case "d":   // 오른쪽 방향 정지
-                changeSprite(18, 24, 32, 120, 73);
+                changeSprite(18, 24, 32, 1, 73);
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
             case "a":   // 왼쪽 방향 정지
-                changeSpriteFlipped(18, 24, 32, 120, 73);
+                changeSpriteFlipped(18, 24, 32, 1, 73);
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
             case "w":   // 위 방향 정지
-                changeSprite(36, 42, 96, 36, 81);
+                changeSprite(36, 42, 96, 3, 81);
                 setOffsets(12, 42, 0, 0, 0, -3);
                 break;
         }
@@ -285,20 +336,36 @@ public class SpriteRenderer {
     /// 이동 상태 설정
     private void setMovementState(String direction) {
         switch (direction) {
-            case "s":   // 아래 방향
-                startAnimation(new int[]{54, 2, 0, 55, 1, 0}, new int[]{60, 61}, new int[]{0, 0}, new int[]{1, 2}, new int[]{65, 65}, false);
+            case "s":   // 아래 방향 - 8프레임 애니메이션
+                startAnimation(new int[]{0, 54, 2, 0, 55, 1, 3, 4},
+                        new int[]{6, 60, 60, 6, 61, 61, 7, 8},
+                        new int[]{0, 0},
+                        new int[]{1, 2},
+                        new int[]{65, 65}, false);
                 setOffsets(12, 48, 0, 0, 0, 3);
                 break;
             case "d":   // 오른쪽 방향
-                startAnimation(new int[]{56, 33, 18, 57, 51, 18}, new int[]{62, 63}, new int[]{32, 32}, new int[]{19, 20}, new int[]{73, 73}, false);
+                startAnimation(new int[]{18, 56, 41, 18, 57, 23},
+                        new int[]{24, 62, 62, 24, 63, 63},
+                        new int[]{32, 32},
+                        new int[]{19, 20},
+                        new int[]{73, 73}, false);
                 setOffsets(12, 48, 0, 0, 0, 3);
                 break;
             case "a":   // 왼쪽 방향: 오른쪽과 같지만 좌우 반전
-                startAnimation(new int[]{56, 33, 18, 57, 51, 18}, new int[]{62, 63}, new int[]{32, 32}, new int[]{19, 20}, new int[]{73, 73}, true);
+                startAnimation(new int[]{18, 56, 41, 18, 57, 23},
+                        new int[]{24, 62, 62, 24, 63, 63},
+                        new int[]{32, 32},
+                        new int[]{19, 20},
+                        new int[]{73, 73}, true);
                 setOffsets(12, 48, 0, 0, 0, 3);
                 break;
-            case "w":   // 위 방향
-                startAnimation(new int[]{59, 38, 36, 58, 37, 36}, new int[]{64, 65}, new int[]{96, 96}, new int[]{37, 38}, new int[]{81, 81}, false);
+            case "w":   // 위 방향 - 8프레임 애니메이션
+                startAnimation(new int[]{36, 59, 38, 36, 58, 37, 39, 40},
+                        new int[]{42, 65, 65, 42, 64, 64, 43, 44},
+                        new int[]{96, 96},
+                        new int[]{37, 38},
+                        new int[]{81, 81}, false);
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
         }
