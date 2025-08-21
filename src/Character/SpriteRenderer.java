@@ -56,11 +56,20 @@ public class SpriteRenderer {
 
     /// 생성자: 스프라이트 시트 로드 및 초기화
     public SpriteRenderer() {
-        loadSpriteSheet("resource/Characters/Farmer/farmer_base.png");
-        loadShirtSpriteSheet("resource/Characters/Farmer/shirts.png");
-        loadPantsSpriteSheet("resource/Characters/Farmer/pants.png");
+        loadSpriteSheet();
         setupAnimation();
         loadFrames(0, 6, 0, 0); // 기본값: 몸(0), 팔(6), 셔츠(0), 바지(0)
+    }
+
+    /// 스프라이트 시트 이미지 파일 로드
+    private void loadSpriteSheet() {
+        try {
+            spriteSheet = ImageIO.read(new File("resource/Characters/Farmer/farmer_base.png"));
+            spriteSheetShirt = ImageIO.read(new File("resource/Characters/Farmer/shirts.png"));
+            SpriteSheetPants = ImageIO.read(new File("resource/Characters/Farmer/pants.png"));
+        } catch (IOException e) {
+            System.err.println("스프라이트 시트를 로드할 수 없습니다: " + e.getMessage());
+        }
     }
 
     /// 애니메이션 타이머 설정 (190ms 간격으로 프레임 전환)
@@ -102,32 +111,6 @@ public class SpriteRenderer {
         animationTimer.stop();
     }
 
-    /// 스프라이트 시트 이미지 파일 로드
-    private void loadSpriteSheet(String imagePath) {
-        try {
-            spriteSheet = ImageIO.read(new File(imagePath));
-        } catch (IOException e) {
-            System.err.println("스프라이트 시트를 로드할 수 없습니다: " + e.getMessage());
-        }
-    }
-
-    /// 셔츠 스프라이트 시트 이미지 파일 로드
-    private void loadShirtSpriteSheet(String imagePath) {
-        try {
-            spriteSheetShirt = ImageIO.read(new File(imagePath));
-        } catch (IOException e) {
-            System.err.println("셔츠 스프라이트 시트를 로드할 수 없습니다: " + e.getMessage());
-        }
-    }
-
-    /// 바지 스프라이트 시트 이미지 파일 로드
-    private void loadPantsSpriteSheet(String imagePath) {
-        try {
-            SpriteSheetPants = ImageIO.read(new File(imagePath));
-        } catch (IOException e) {
-            System.err.println("바지 스프라이트 시트를 로드할 수 없습니다: " + e.getMessage());
-        }
-    }
 
     /// 기본 프레임 로드 메서드
     private void loadFrames(int baseFrameNum, int armFrameNum, int shirtFrameNum, int pantsFrameNum) {
@@ -234,15 +217,19 @@ public class SpriteRenderer {
                 switch (newDirection) {
                     case "s":   // 아래 방향
                         startAnimation(new int[]{1, 2}, new int[]{7, 8}, new int[]{0, 0}, new int[]{1, 2}, false);
+                        setShirtOffset(12,48);
                         break;
                     case "d":   // 오른쪽 방향
-                        startAnimation(new int[]{19, 20}, new int[]{23, 24}, new int[]{1, 1}, new int[]{19, 20}, false);
+                        startAnimation(new int[]{19, 20}, new int[]{23, 24}, new int[]{32,32}, new int[]{19, 20}, false);
+                        setShirtOffset(12,48);
                         break;
                     case "a":   // 왼쪽 방향: 오른쪽과 같지만 좌우 반전
-                        startAnimation(new int[]{19, 20}, new int[]{23, 24}, new int[]{1, 1}, new int[]{19, 20}, true);
+                        startAnimation(new int[]{19, 20}, new int[]{23, 24}, new int[]{32, 32}, new int[]{19, 20}, true);
+                        setShirtOffset(12,48);
                         break;
                     case "w":   // 위 방향
-                        startAnimation(new int[]{37, 38}, new int[]{44, 46}, new int[]{3, 3}, new int[]{37, 38}, false);
+                        startAnimation(new int[]{37, 38}, new int[]{44, 46}, new int[]{96, 96}, new int[]{37, 38}, false);
+                        setShirtOffset(12,45);
                         break;
                 }
             }
@@ -287,13 +274,6 @@ public class SpriteRenderer {
         this.x_Shirt = offsetX;
         this.y_Shirt = offsetY;
     }
-
-    /// 바지 위치 오프셋 설정
-    public void setPantsOffset(int offsetX, int offsetY) {
-        this.x_Pants = offsetX;
-        this.y_Pants = offsetY;
-    }
-
     /// 정적 스프라이트 변경 (애니메이션 없음)
     public void changeSprite(int baseFrameNum, int armFrameNum, int shirtFrameNum, int pantsFrameNum) {
         loadFrames(baseFrameNum, armFrameNum, shirtFrameNum, pantsFrameNum, false);
@@ -356,15 +336,19 @@ public class SpriteRenderer {
             switch (keyInput.toLowerCase()) {
                 case "s":   // 아래 방향 정지
                     changeSprite(0, 6, 0, 0);
+                    setShirtOffset(12,45);
                     break;
                 case "d":   // 오른쪽 방향 정지
-                    changeSprite(18, 24, 1, 18);
+                    changeSprite(18, 24, 32, 18);
+                    setShirtOffset(12,45);
                     break;
                 case "a":   // 왼쪽 방향 정지
-                    changeSpriteFlipped(18, 24, 1, 18);
+                    changeSpriteFlipped(18, 24, 32, 18);
+                    setShirtOffset(12,45);
                     break;
                 case "w":   // 위 방향 정지
-                    changeSprite(36, 42, 3, 36);
+                    changeSprite(36, 42, 96, 36);
+                    setShirtOffset(12,42);
                     break;
             }
         }
