@@ -84,7 +84,7 @@ public class SpriteRenderer {
         try {
             spriteSheet = ImageIO.read(new File("resource/Characters/Farmer/farmer_base.png"));
             spriteSheetShirt = ImageIO.read(new File("resource/Characters/Farmer/shirts.png"));
-            spriteSheetPants = ImageIO.read(new File("resource/Characters/Farmer/pants.png"));
+            spriteSheetPants = ImageIO.read(new File("resource/Characters/Farmer/pants.ghpng"));
             spriteSheetHair = ImageIO.read(new File("resource/Characters/Farmer/hairstyles.png"));
         } catch (IOException e) {
             System.err.println("스프라이트 시트를 로드할 수 없습니다: " + e.getMessage());
@@ -95,7 +95,7 @@ public class SpriteRenderer {
     private void setupAnimation() {
         animationTimer = new Timer(190, e -> {
             if (isAnimating) {
-                currentAnimFrame = (currentAnimFrame + 1) % 2; // 0과 1 사이를 반복
+                currentAnimFrame = (currentAnimFrame + 1) % 6;
                 updateCurrentFrame();
             }
         });
@@ -103,11 +103,27 @@ public class SpriteRenderer {
 
     /// 현재 애니메이션 프레임에 따라 실제 스프라이트 프레임 업데이트
     private void updateCurrentFrame() {
-        int baseFrame = currentBaseFrames[currentAnimFrame];
-        int armFrame = currentArmFrames[currentAnimFrame];
-        int shirtFrame = currentShirtFrames[currentAnimFrame];
-        int pantsFrame = currentPantsFrames[currentAnimFrame];
-        int hairFrame = currentHairFrames[currentAnimFrame];
+        // 각 배열의 길이를 체크하여 안전하게 인덱스 접근
+        int baseFrame = currentAnimFrame < currentBaseFrames.length ?
+                currentBaseFrames[currentAnimFrame] :
+                currentBaseFrames[currentBaseFrames.length - 1];
+
+        int armFrame = currentAnimFrame < currentArmFrames.length ?
+                currentArmFrames[currentAnimFrame] :
+                currentArmFrames[currentArmFrames.length - 1];
+
+        int shirtFrame = currentAnimFrame < currentShirtFrames.length ?
+                currentShirtFrames[currentAnimFrame] :
+                currentShirtFrames[currentShirtFrames.length - 1];
+
+        int pantsFrame = currentAnimFrame < currentPantsFrames.length ?
+                currentPantsFrames[currentAnimFrame] :
+                currentPantsFrames[currentPantsFrames.length - 1];
+
+        int hairFrame = currentAnimFrame < currentHairFrames.length ?
+                currentHairFrames[currentAnimFrame] :
+                currentHairFrames[currentHairFrames.length - 1];
+
         loadFrames(baseFrame, armFrame, shirtFrame, pantsFrame, hairFrame, currentFlipped);
     }
 
@@ -252,11 +268,11 @@ public class SpriteRenderer {
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
             case "d":   // 오른쪽 방향 정지
-                changeSprite(18, 24, 32, 18, 73);
+                changeSprite(18, 24, 32, 120, 73);
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
             case "a":   // 왼쪽 방향 정지
-                changeSpriteFlipped(18, 24, 32, 18, 73);
+                changeSpriteFlipped(18, 24, 32, 120, 73);
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
             case "w":   // 위 방향 정지
@@ -270,19 +286,19 @@ public class SpriteRenderer {
     private void setMovementState(String direction) {
         switch (direction) {
             case "s":   // 아래 방향
-                startAnimation(new int[]{1, 2}, new int[]{7, 8}, new int[]{0, 0}, new int[]{1, 2}, new int[]{65, 65}, false);
+                startAnimation(new int[]{54, 2, 0, 55, 1, 0}, new int[]{60, 61}, new int[]{0, 0}, new int[]{1, 2}, new int[]{65, 65}, false);
                 setOffsets(12, 48, 0, 0, 0, 3);
                 break;
             case "d":   // 오른쪽 방향
-                startAnimation(new int[]{19, 20}, new int[]{23, 24}, new int[]{32, 32}, new int[]{19, 20}, new int[]{73, 73}, false);
+                startAnimation(new int[]{56, 33, 18, 57, 51, 18}, new int[]{62, 63}, new int[]{32, 32}, new int[]{19, 20}, new int[]{73, 73}, false);
                 setOffsets(12, 48, 0, 0, 0, 3);
                 break;
             case "a":   // 왼쪽 방향: 오른쪽과 같지만 좌우 반전
-                startAnimation(new int[]{19, 20}, new int[]{23, 24}, new int[]{32, 32}, new int[]{19, 20}, new int[]{73, 73}, true);
+                startAnimation(new int[]{56, 33, 18, 57, 51, 18}, new int[]{62, 63}, new int[]{32, 32}, new int[]{19, 20}, new int[]{73, 73}, true);
                 setOffsets(12, 48, 0, 0, 0, 3);
                 break;
             case "w":   // 위 방향
-                startAnimation(new int[]{37, 38}, new int[]{44, 46}, new int[]{96, 96}, new int[]{37, 38}, new int[]{81, 81}, false);
+                startAnimation(new int[]{59, 38, 36, 58, 37, 36}, new int[]{64, 65}, new int[]{96, 96}, new int[]{37, 38}, new int[]{81, 81}, false);
                 setOffsets(12, 45, 0, 0, 0, 0);
                 break;
         }
