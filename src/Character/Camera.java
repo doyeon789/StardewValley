@@ -45,10 +45,6 @@ public class Camera {
         int targetX = player.getX() + player.getWidth() / 2 - viewWidth / 2;
         int targetY = player.getY() + player.getHeight() / 2 - viewHeight / 2;
 
-        // 이전 카메라 위치 저장 (디버깅이나 부드러운 이동에 사용 가능)
-        int oldX = this.x;
-        int oldY = this.y;
-
         // 새로운 카메라 위치 설정
         this.x = targetX;
         this.y = targetY;
