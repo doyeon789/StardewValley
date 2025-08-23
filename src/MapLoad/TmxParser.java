@@ -81,6 +81,10 @@ public class TmxParser {
     private int mapOffsetX = 0;
     private int mapOffsetY = 0;
 
+    /** ========== 충돌 검사 시스템 ========== **/
+    private Layer collisionLayer = null;
+    private boolean showCollisionDebug = true;
+
     /// 1. 컬렉션 초기화
     /// 2. PNG 파일들을 미리 로3
     /// 3. 카메라와 스프라이트 초기화
@@ -158,28 +162,39 @@ public class TmxParser {
 
         // 각 방향키에 대해 이동 처리
         if (keysPressed.contains("w")) {
-            newY -= MOVE_SPEED;
-            moved = true;
+            int testY = newY - MOVE_SPEED;
+            if (isValidPlayerPosition(newX, testY)) {
+                newY = testY;
+                moved = true;
+            }
         }
         if (keysPressed.contains("s")) {
-            newY += MOVE_SPEED;
-            moved = true;
+            int testY = newY + MOVE_SPEED;
+            if (isValidPlayerPosition(newX, testY)) {
+                newY = testY;
+                moved = true;
+            }
         }
         if (keysPressed.contains("a")) {
-            newX -= MOVE_SPEED;
-            moved = true;
+            int testX = newX - MOVE_SPEED;
+            if (isValidPlayerPosition(testX, newY)) {
+                newX = testX;
+                moved = true;
+            }
         }
         if (keysPressed.contains("d")) {
-            newX += MOVE_SPEED;
-            moved = true;
+            int testX = newX + MOVE_SPEED;
+            if (isValidPlayerPosition(testX, newY)) {
+                newX = testX;
+                moved = true;
+            }
         }
 
-        // 맵 경계 체크
+        // 맵 경계 체크 (기존 로직 유지)
         if (moved) {
             int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
             int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
-            // 맵 영역 내에서만 이동 가능 (오프셋 고려)
             int minX = mapOffsetX;
             int minY = mapOffsetY;
             int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
@@ -376,7 +391,7 @@ public class TmxParser {
             camera.setMapBounds(mapPixelWidth, mapPixelHeight);
 
             // 플레이어를 맵 중앙에 기본 배치 (나중에 setPlayerStartPosition으로 변경 가능)
-            setPlayerStartPosition(10, 5);
+            setPlayerStartPosition(10, 10);
 
             // 타일셋 파싱
             NodeList tilesetNodes = doc.getElementsByTagName("tileset");
@@ -453,6 +468,8 @@ public class TmxParser {
 
             // 타일 이미지 미리 캐싱 (백그라운드에서)
             preloadTileImages();
+
+            setupCollisionLayer();
 
             // UI 업데이트
             SwingUtilities.invokeLater(() -> {
@@ -666,6 +683,9 @@ public class TmxParser {
             sprite.render(g2d);
         }
 
+
+        // 이동불가 영역 UI
+        //renderCollisionDebug(g2d);
         // 정보 UI
         renderUI(g2d);
     }
@@ -857,6 +877,148 @@ public class TmxParser {
             yOffset += 5; // 약간의 여백
             g2d.setColor(Color.GREEN);
             g2d.drawString("Keys Pressed: " + String.join(", ", keysPressed), panelX + 5, yOffset);
+        }
+    }
+
+    /// 충돌 레이어 설정 (TMX 로드 후 호출)
+    private void setupCollisionLayer() {
+        // "Buildings" 레이어를 충돌 레이어로 설정
+        for (Layer layer : layers) {
+            if ("Buildings".equalsIgnoreCase(layer.name)) {
+                collisionLayer = layer;
+                System.out.println("충돌 레이어 설정됨: " + layer.name);
+                break;
+            }
+        }
+
+        if (collisionLayer == null) {
+            System.out.println("충돌 레이어를 찾을 수 없습니다. 모든 이동이 허용됩니다.");
+        }
+    }
+
+    /// 특정 타일 위치에 충돌 객체가 있는지 확인
+    /// @param tileX 타일 X 좌표
+    /// @param tileY 타일 Y 좌표
+    /// @return 충돌 객체가 있으면 true
+    private boolean isTileBlocked(int tileX, int tileY) {
+        if (collisionLayer == null) return false;
+
+        // 맵 경계 체크
+        if (tileX < 0 || tileY < 0 || tileX >= mapWidth || tileY >= mapHeight) {
+            return true; // 맵 밖은 이동 불가
+        }
+
+        int index = tileY * collisionLayer.width + tileX;
+        if (index >= collisionLayer.data.length) return true;
+
+        int gid = collisionLayer.data[index];
+        return gid != 0; // 0이 아니면 충돌 객체 존재
+    }
+
+    /// 픽셀 좌표에서 충돌 검사
+    /// @param pixelX 픽셀 X 좌표
+    /// @param pixelY 픽셀 Y 좌표
+    /// @return 충돌하면 true
+    private boolean isPixelBlocked(int pixelX, int pixelY) {
+        // 맵 오프셋을 고려하여 타일 좌표로 변환
+        int adjustedX = pixelX - mapOffsetX;
+        int adjustedY = pixelY - mapOffsetY;
+
+        if (adjustedX < 0 || adjustedY < 0) return true;
+
+        int tileX = adjustedX / (tileWidth * TILE_SCALE);
+        int tileY = adjustedY / (tileHeight * TILE_SCALE);
+
+        return isTileBlocked(tileX, tileY);
+    }
+
+    /// 플레이어의 새로운 위치가 유효한지 검사 (히트박스 고려)
+    /// @param newX 새로운 X 좌표
+    /// @param newY 새로운 Y 좌표
+    /// @return 이동 가능하면 true
+    private boolean isValidPlayerPosition(int newX, int newY) {
+        if (collisionLayer == null) return true;
+
+        int playerWidth = sprite.getWidth();
+        int playerHeight = sprite.getHeight();
+
+        // 발의 중앙 지점만 검사
+        int footCenterX = newX + playerWidth / 2;
+        int footY = newY + playerHeight - 23;
+
+        return !isPixelBlocked(footCenterX, footY);
+    }
+
+    /// 충돌 영역을 빨간색 반투명 박스로 표시하는 메서드
+    private void renderCollisionDebug(Graphics2D g2d) {
+        if (!showCollisionDebug || collisionLayer == null) return;
+
+        // 반투명 빨간색 설정
+        g2d.setColor(new Color(255, 0, 0, 120));
+
+        int scaledTileWidth = tileWidth * TILE_SCALE;
+        int scaledTileHeight = tileHeight * TILE_SCALE;
+
+        // 맵이 화면보다 큰 경우 (카메라 사용)
+        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+
+        if (mapPixelWidth > canvas.getWidth() || mapPixelHeight > canvas.getHeight()) {
+            // 화면에 보이는 타일 범위만 계산 (성능 최적화)
+            int startTileX = Math.max(0, camera.getX() / scaledTileWidth);
+            int startTileY = Math.max(0, camera.getY() / scaledTileHeight);
+            int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 1);
+            int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 1);
+
+            // 화면에 보이는 충돌 타일만 렌더링
+            for (int y = startTileY; y <= endTileY; y++) {
+                for (int x = startTileX; x <= endTileX; x++) {
+                    int index = y * collisionLayer.width + x;
+                    if (index >= collisionLayer.data.length) continue;
+
+                    int gid = collisionLayer.data[index];
+                    if (gid != 0) { // 충돌 타일인 경우
+                        // 월드 좌표
+                        int worldX = x * scaledTileWidth;
+                        int worldY = y * scaledTileHeight;
+
+                        // 화면 좌표로 변환
+                        int screenX = camera.worldToScreenX(worldX);
+                        int screenY = camera.worldToScreenY(worldY);
+
+                        // 빨간색 반투명 박스 그리기
+                        g2d.fillRect(screenX, screenY, scaledTileWidth, scaledTileHeight);
+
+                        // 테두리 그리기 (선택사항)
+                        g2d.setColor(new Color(255, 0, 0, 200));
+                        g2d.drawRect(screenX, screenY, scaledTileWidth, scaledTileHeight);
+                        g2d.setColor(new Color(255, 0, 0, 120));
+                    }
+                }
+            }
+        } else {
+            // 맵이 화면보다 작은 경우 (고정된 중앙 위치)
+            for (int y = 0; y < mapHeight; y++) {
+                for (int x = 0; x < mapWidth; x++) {
+                    int index = y * collisionLayer.width + x;
+                    if (index >= collisionLayer.data.length) continue;
+
+                    int gid = collisionLayer.data[index];
+                    if (gid != 0) { // 충돌 타일인 경우
+                        // 중앙 정렬된 위치에 충돌 박스 렌더링
+                        int screenX = mapOffsetX + x * scaledTileWidth;
+                        int screenY = mapOffsetY + y * scaledTileHeight;
+
+                        // 빨간색 반투명 박스 그리기
+                        g2d.fillRect(screenX, screenY, scaledTileWidth, scaledTileHeight);
+
+                        // 테두리 그리기 (선택사항)
+                        g2d.setColor(new Color(255, 0, 0, 200));
+                        g2d.drawRect(screenX, screenY, scaledTileWidth, scaledTileHeight);
+                        g2d.setColor(new Color(255, 0, 0, 120));
+                    }
+                }
+            }
         }
     }
 

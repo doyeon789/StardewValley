@@ -111,7 +111,7 @@ public class SpriteRenderer {
 
     /// 애니메이션 타이머 설정 (130ms 간격으로 프레임 전환)
     private void setupAnimation() {
-        animationTimer = new Timer(130, e -> { //130
+        animationTimer = new Timer(80, e -> {
             if (isAnimating) {
                 currentAnimFrame = (currentAnimFrame + 1) % maxAnimFrames;
                 updateCurrentFrame();
