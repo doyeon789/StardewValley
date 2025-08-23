@@ -9,7 +9,7 @@ public class Main {
         SwingUtilities.invokeLater(() -> {
             TmxParser viewer = new TmxParser();
 
-            viewer.loadDefaultTmxFile(Mappath[0]);
+            viewer.loadDefaultTmxFile(Mappath[1]);
 
             viewer.show();
         });

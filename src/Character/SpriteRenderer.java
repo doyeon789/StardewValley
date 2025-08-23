@@ -72,7 +72,7 @@ public class SpriteRenderer {
     private int[] frameOffsets_ArmX = {0};      // 팔 X 오프셋 배열
     private int[] frameOffsets_ArmY = {0};      // 팔 Y 오프셋 배열
     private int[] frameOffsets_ShirtX = {12};   // 셔츠 X 오프셋 배열
-    private int[] frameOffsets_ShirtY = {42};   // 셔츠 Y 오프셋 배열
+    private int[] frameOffsets_ShirtY = {45};   // 셔츠 Y 오프셋 배열
     private int[] frameOffsets_PantsX = {0};    // 바지 X 오프셋 배열
     private int[] frameOffsets_PantsY = {0};    // 바지 Y 오프셋 배열
     private int[] frameOffsets_HairX = {0};     // 머리카락 X 오프셋 배열
@@ -95,7 +95,6 @@ public class SpriteRenderer {
         loadSpriteSheet();
         setupAnimation();
         loadFrames(0, 6, 0, 0, 65); // 기본값: 몸(0), 팔(6), 셔츠(0), 바지(0), 머리카락(65)
-        setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0); // 초기 오프셋 설정
     }
 
     /// 스프라이트 시트 이미지 파일 로드
@@ -349,12 +348,11 @@ public class SpriteRenderer {
 
     /// 정지 상태 설정
     private void setIdleState(String direction) {
+        // 기본 오프셋 초기화는 각 방향별로 다르게 설정
         frameOffsets_BaseX = new int[]{0};
         frameOffsets_BaseY = new int[]{0};
         frameOffsets_ArmX = new int[]{0};
         frameOffsets_ArmY = new int[]{0};
-        frameOffsets_ShirtX = new int[]{12};   // 셔츠의 기본 X 오프셋
-        frameOffsets_ShirtY = new int[]{42};   // 셔츠의 기본 Y 오프셋
         frameOffsets_PantsX = new int[]{0};
         frameOffsets_PantsY = new int[]{0};
         frameOffsets_HairX = new int[]{0};
@@ -362,20 +360,28 @@ public class SpriteRenderer {
 
         switch (direction) {
             case "s":   // 아래 방향 정지
+                frameOffsets_ShirtX = new int[]{12};
+                frameOffsets_ShirtY = new int[]{45};
                 changeSprite(0, 6, 0, 0, 65);
-                setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0);
+                setOffsets(0,0,0,0,12, 45, 0, 0, 0, 0);
                 break;
             case "d":   // 오른쪽 방향 정지
+                frameOffsets_ShirtX = new int[]{12};
+                frameOffsets_ShirtY = new int[]{45};
                 changeSprite(18, 24, 32, 120, 73);
-                setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0);
+                setOffsets(0,0,0,0,12, 45, 0, 0, 0, 0);
                 break;
             case "a":   // 왼쪽 방향 정지
+                frameOffsets_ShirtX = new int[]{12};
+                frameOffsets_ShirtY = new int[]{45};
                 changeSpriteFlipped(18, 24, 32, 120, 73);
-                setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0);
+                setOffsets(0,0,0,0,12, 45, 0, 0, 0, 0);
                 break;
-            case "w":   // 위 방향 정지
+            case "w":   // 위 방향 정지 - 셔츠 Y 오프셋을 42로 설정
+                frameOffsets_ShirtX = new int[]{12};
+                frameOffsets_ShirtY = new int[]{42};  // 42로 설정
                 changeSprite(36, 42, 96, 240, 81);
-                setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0);
+                setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0);  // 여기도 42로 설정
                 break;
         }
     }
@@ -384,12 +390,25 @@ public class SpriteRenderer {
     private void setMovementState(String direction) {
         switch (direction) {
             case "s":   // 아래 방향 - 완벽
-                startAnimation(new int[]{0, 1, 54, 1, 0, 2, 55, 2},
+                startAnimationWithOffsets(
+                        // 프레임 번호들
+                        new int[]{0, 1, 54, 1, 0, 2, 55, 2},
                         new int[]{6, 7, 60, 7, 6, 8, 61, 8},
                         new int[]{0, 0},
                         new int[]{0 , 1 , 540 , 1 , 0 , 2  , 541 , 2},
-                        new int[]{65, 65}, false);
-                setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0);
+                        new int[]{65, 65}, false,
+                        // 프레임별 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 몸통 X 오프셋 (6프레임)
+                        new int[]{0, -6, -12, -6, 0, -6, -12, -6},      /// 몸통 Y 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 팔 X 오프셋
+                        new int[]{0, -6, -9, -6, 0, -6, -9, -6},        /// 팔 Y 오프셋
+                        new int[]{12, 12, 12, 12, 12, 12},              // 셔츠 X 오프셋
+                        new int[]{45, 42, 39, 42, 45, 42, 39, 42},      /// 셔츠 Y 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 바지 X 오프셋
+                        new int[]{0, -6, -6, -6, 0, -6, -6, -6},        /// 바지 Y 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 머리카락 X 오프셋
+                        new int[]{0, -3, -6, -3, 0, -3, -6, -3}         /// 머리카락 Y 오프셋
+                );
                 break;
             case "d":   // 오른쪽 방향
                 startAnimationWithOffsets(
@@ -405,7 +424,7 @@ public class SpriteRenderer {
                         new int[]{0, 0, 0, 0, 0, 0},            // 팔 X 오프셋
                         new int[]{0, -6, 0, 0, -6, 0},          /// 팔 Y 오프셋
                         new int[]{12, 12, 12, 12, 12, 12},      // 셔츠 X 오프셋
-                        new int[]{42, 39, 45, 42, 39, 45},      /// 셔츠 Y 오프셋
+                        new int[]{45, 42, 48, 45, 42, 48},      /// 셔츠 Y 오프셋
                         new int[]{0, 0, 0, 0, 0, 0},            // 바지 X 오프셋
                         new int[]{0, -6, 0, 0, -6, 0},          /// 바지 Y 오프셋
                         new int[]{0, 0, 0, 0, 0, 0},            // 머리카락 X 오프셋
@@ -419,14 +438,14 @@ public class SpriteRenderer {
                         new int[]{24, 62, 29, 24, 63, 47},
                         new int[]{32, 32},
                         new int[]{120, 363, 245, 120, 363, 125},
-                        new int[]{73, 73}, false,
+                        new int[]{73, 73}, true,
                         // 프레임별 오프셋
                         new int[]{0, 0, 0, 0, 0, 0},            // 몸통 X 오프셋 (6프레임)
                         new int[]{0, -6, 0, 0, -6, 0},          /// 몸통 Y 오프셋
                         new int[]{0, 0, 0, 0, 0, 0},            // 팔 X 오프셋
                         new int[]{0, -6, 0, 0, -6, 0},          /// 팔 Y 오프셋
                         new int[]{12, 12, 12, 12, 12, 12},      // 셔츠 X 오프셋
-                        new int[]{42, 39, 45, 42, 39, 45},      /// 셔츠 Y 오프셋
+                        new int[]{45, 42, 48, 45, 42, 48},      /// 셔츠 Y 오프셋
                         new int[]{0, 0, 0, 0, 0, 0},            // 바지 X 오프셋
                         new int[]{0, -6, 0, 0, -6, 0},          /// 바지 Y 오프셋
                         new int[]{0, 0, 0, 0, 0, 0},            // 머리카락 X 오프셋
@@ -434,12 +453,25 @@ public class SpriteRenderer {
                 );
                 break;
             case "w":   // 위 방향 - 8프레임 애니메이션
-                startAnimation(new int[]{36, 38, 59, 38, 36, 37, 58, 37},
+                startAnimationWithOffsets(
+                        // 프레임 번호들
+                        new int[]{36, 38, 59, 38, 36, 37, 58, 37},
                         new int[]{42, 65, 65, 42, 64, 64},
                         new int[]{96, 96},
-                        new int[]{240, 241, 364, 241, 240, 242, 365, 342},
-                        new int[]{81, 81}, false);
-                setOffsets(0,0,0,0,12, 42, 0, 0, 0, 0);
+                        new int[]{240, 241, 364, 241, 240, 242, 365, 242},
+                        new int[]{81, 81}, false,
+                        // 프레임별 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 몸통 X 오프셋 (6프레임)
+                        new int[]{0, -6, -9, -6, 0, -6, -9, -6},        /// 몸통 Y 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 팔 X 오프셋
+                        new int[]{0, -6, -9, -6, 0, -6, -9, -6},        /// 팔 Y 오프셋
+                        new int[]{12, 12, 12, 12, 12, 12},              // 셔츠 X 오프셋
+                        new int[]{42, 39, 36, 39, 42, 39, 36, 39},      /// 셔츠 Y 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 바지 X 오프셋
+                        new int[]{0, -6, -6, -6, 0, -6, -6, -6},        /// 바지 Y 오프셋
+                        new int[]{0, 0, 0, 0, 0, 0, 0, 0},              // 머리카락 X 오프셋
+                        new int[]{0, -3, -6, -3, 0, -3, -6, -3}         /// 머리카락 Y 오프셋
+                );
                 break;
         }
     }
