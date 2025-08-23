@@ -981,7 +981,7 @@ public class TmxParser {
         // 플레이어 하단부의 히트박스 정의 (발 부분)
         int hitboxTopOffset = playerHeight - 23;    // 발에서 위로 13픽셀
         int hitboxBottomOffset = playerHeight - 5;  // 발에서 위로 5픽셀
-        int hitboxLeftOffset = 8;                   // 좌측에서 8픽셀 안쪽
+        int hitboxLeftOffset = -8;                  // 좌측에서 8픽셀 안쪽
         int hitboxRightOffset = playerWidth-8;      // 우측에서 8픽셀 안쪽
 
         // 히트박스의 네 모서리 점들
