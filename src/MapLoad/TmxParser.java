@@ -575,12 +575,13 @@ public class TmxParser {
         return createTileImage(gid);
     }
 
-    /// 카메라 기반 최적화된 렌더링 시스템
+    /// 카메라 기반 최적화된 렌더링 시스템 (레이어 순서 고려)
     /// 1. 카메라 업데이트 (플레이어 추적)
     /// 2. 화면 범위 내 타일만 렌더링 (컬링)
-    /// 3. 레이어별 타일 렌더링
-    /// 4. 플레이어 렌더링 (좌표 변환)
-    /// 5. UI 렌더링
+    /// 3. Back/Buildings 레이어 렌더링 (플레이어 뒤)
+    /// 4. 플레이어 렌더링
+    /// 5. Front 레이어 렌더링 (플레이어 앞)
+    /// 6. UI 렌더링
     private void renderTileMapWithCamera(Graphics g) {
         Graphics2D g2d = (Graphics2D) g;
         g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -606,88 +607,123 @@ public class TmxParser {
             int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 1);
             int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 1);
 
-            // 레이어별 렌더링
-            for (Layer layer : layers) {
-                if (!layer.visible) continue;
+            // 1단계: 플레이어 뒤에 그려질 레이어들 (Back, Buildings)
+            renderLayersWithCamera(g2d, startTileX, startTileY, endTileX, endTileY, scaledTileWidth, scaledTileHeight, false);
 
-                for (int y = startTileY; y <= endTileY; y++) {
-                    for (int x = startTileX; x <= endTileX; x++) {
-                        int index = y * layer.width + x;
-                        if (index >= layer.data.length) continue;
+            // 2단계: 플레이어 렌더링 (카메라 좌표계)
+            renderPlayerWithCamera(g2d);
 
-                        int gid = layer.data[index];
-                        if (gid == 0) continue;
-
-                        BufferedImage tileImage = getTileImage(gid);
-                        if (tileImage != null) {
-                            // 월드 좌표
-                            int worldX = x * scaledTileWidth;
-                            int worldY = y * scaledTileHeight;
-
-                            // 화면 좌표로 변환
-                            int screenX = camera.worldToScreenX(worldX);
-                            int screenY = camera.worldToScreenY(worldY);
-
-                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
-                        }
-                    }
-                }
-            }
-
-            // 플레이어 렌더링 (카메라 좌표계)
-            // 플레이어의 화면 좌표 계산
-            int playerScreenX = camera.worldToScreenX(sprite.getX());
-            int playerScreenY = camera.worldToScreenY(sprite.getY());
-
-            // 원래 위치 저장
-            int originalX = sprite.getX();
-            int originalY = sprite.getY();
-
-            // 화면 좌표로 설정하고 렌더링
-            sprite.setPosition(playerScreenX, playerScreenY);
-            sprite.render(g2d);
-
-            // 원래 위치 복원
-            sprite.setPosition(originalX, originalY);
-
+            // 3단계: 플레이어 앞에 그려질 레이어들 (Front)
+            renderLayersWithCamera(g2d, startTileX, startTileY, endTileX, endTileY, scaledTileWidth, scaledTileHeight, true);
         } else {
             // 맵이 화면보다 작은 경우 - 고정된 중앙 위치에서 렌더링
             int scaledTileWidth = tileWidth * TILE_SCALE;
             int scaledTileHeight = tileHeight * TILE_SCALE;
 
-            // 레이어별 렌더링 (모든 타일 렌더링)
-            for (Layer layer : layers) {
-                if (!layer.visible) continue;
+            // 1단계: 플레이어 뒤에 그려질 레이어들 (Back, Buildings)
+            renderLayersFixed(g2d, scaledTileWidth, scaledTileHeight, false);
 
-                for (int y = 0; y < mapHeight; y++) {
-                    for (int x = 0; x < mapWidth; x++) {
-                        int index = y * layer.width + x;
-                        if (index >= layer.data.length) continue;
-
-                        int gid = layer.data[index];
-                        if (gid == 0) continue;
-
-                        BufferedImage tileImage = getTileImage(gid);
-                        if (tileImage != null) {
-                            // 중앙 정렬된 위치에 타일 렌더링
-                            int screenX = mapOffsetX + x * scaledTileWidth;
-                            int screenY = mapOffsetY + y * scaledTileHeight;
-
-                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
-                        }
-                    }
-                }
-            }
-
-            // 플레이어 렌더링 (고정된 위치)
+            // 2단계: 플레이어 렌더링 (고정된 위치)
             sprite.render(g2d);
-        }
 
+            // 3단계: 플레이어 앞에 그려질 레이어들 (Front)
+            renderLayersFixed(g2d, scaledTileWidth, scaledTileHeight, true);
+        }
 
         // 이동불가 영역 UI
         //renderCollisionDebug(g2d);
         // 정보 UI
         renderUI(g2d);
+    }
+
+    /// 카메라 모드에서 레이어 렌더링 (플레이어 앞/뒤 분리)
+    private void renderLayersWithCamera(Graphics2D g2d, int startTileX, int startTileY, int endTileX, int endTileY,
+                                        int scaledTileWidth, int scaledTileHeight, boolean frontLayersOnly) {
+        for (Layer layer : layers) {
+            if (!layer.visible) continue;
+
+            // 레이어 이름에 따른 렌더링 순서 결정
+            // 레이어 이름에 따른 렌더링 순서 결정
+            boolean isFrontLayer = "Front".equalsIgnoreCase(layer.name) ||
+                    "AlwaysFront".equalsIgnoreCase(layer.name) ||
+                    "AlwaysFront2".equalsIgnoreCase(layer.name);
+
+            if (frontLayersOnly && !isFrontLayer) continue;      // Front 레이어만 렌더링
+            if (!frontLayersOnly && isFrontLayer) continue;      // Front가 아닌 레이어만 렌더링
+
+            for (int y = startTileY; y <= endTileY; y++) {
+                for (int x = startTileX; x <= endTileX; x++) {
+                    int index = y * layer.width + x;
+                    if (index >= layer.data.length) continue;
+
+                    int gid = layer.data[index];
+                    if (gid == 0) continue;
+
+                    BufferedImage tileImage = getTileImage(gid);
+                    if (tileImage != null) {
+                        // 월드 좌표
+                        int worldX = x * scaledTileWidth;
+                        int worldY = y * scaledTileHeight;
+
+                        // 화면 좌표로 변환
+                        int screenX = camera.worldToScreenX(worldX);
+                        int screenY = camera.worldToScreenY(worldY);
+
+                        g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 고정 모드에서 레이어 렌더링 (플레이어 앞/뒤 분리)
+    private void renderLayersFixed(Graphics2D g2d, int scaledTileWidth, int scaledTileHeight, boolean frontLayersOnly) {
+        for (Layer layer : layers) {
+            if (!layer.visible) continue;
+
+            // 레이어 이름에 따른 렌더링 순서 결정
+            boolean isFrontLayer = "Front".equalsIgnoreCase(layer.name);
+
+            if (frontLayersOnly && !isFrontLayer) continue;      // Front 레이어만 렌더링
+            if (!frontLayersOnly && isFrontLayer) continue;      // Front가 아닌 레이어만 렌더링
+
+            for (int y = 0; y < mapHeight; y++) {
+                for (int x = 0; x < mapWidth; x++) {
+                    int index = y * layer.width + x;
+                    if (index >= layer.data.length) continue;
+
+                    int gid = layer.data[index];
+                    if (gid == 0) continue;
+
+                    BufferedImage tileImage = getTileImage(gid);
+                    if (tileImage != null) {
+                        // 중앙 정렬된 위치에 타일 렌더링
+                        int screenX = mapOffsetX + x * scaledTileWidth;
+                        int screenY = mapOffsetY + y * scaledTileHeight;
+
+                        g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 카메라 모드에서 플레이어 렌더링
+    private void renderPlayerWithCamera(Graphics2D g2d) {
+        // 플레이어의 화면 좌표 계산
+        int playerScreenX = camera.worldToScreenX(sprite.getX());
+        int playerScreenY = camera.worldToScreenY(sprite.getY());
+
+        // 원래 위치 저장
+        int originalX = sprite.getX();
+        int originalY = sprite.getY();
+
+        // 화면 좌표로 설정하고 렌더링
+        sprite.setPosition(playerScreenX, playerScreenY);
+        sprite.render(g2d);
+
+        // 원래 위치 복원
+        sprite.setPosition(originalX, originalY);
     }
 
     /// 플레이어 초기 위치 설정 (타일 좌표 기준)
@@ -942,11 +978,46 @@ public class TmxParser {
         int playerWidth = sprite.getWidth();
         int playerHeight = sprite.getHeight();
 
-        // 발의 중앙 지점만 검사
-        int footCenterX = newX + playerWidth / 2;
-        int footY = newY + playerHeight - 23;
+        // 플레이어 하단부의 히트박스 정의 (발 부분)
+        int hitboxTopOffset = playerHeight - 23;    // 발에서 위로 13픽셀
+        int hitboxBottomOffset = playerHeight - 5;  // 발에서 위로 5픽셀
+        int hitboxLeftOffset = 8;                   // 좌측에서 8픽셀 안쪽
+        int hitboxRightOffset = playerWidth-8;      // 우측에서 8픽셀 안쪽
 
-        return !isPixelBlocked(footCenterX, footY);
+        // 히트박스의 네 모서리 점들
+        int hitboxLeft = newX + hitboxLeftOffset;
+        int hitboxRight = newX + hitboxRightOffset;
+        int hitboxTop = newY + hitboxTopOffset;
+        int hitboxBottom = newY + hitboxBottomOffset;
+
+        // 히트박스의 여러 점들을 체크 (더 정밀한 충돌 검사)
+        int checkPoints = 5; // 각 변마다 체크할 점의 개수
+
+        // 상단 가로선 체크
+        for (int i = 0; i < checkPoints; i++) {
+            int x = hitboxLeft + (hitboxRight - hitboxLeft) * i / (checkPoints - 1);
+            if (isPixelBlocked(x, hitboxTop)) return false;
+        }
+
+        // 하단 가로선 체크
+        for (int i = 0; i < checkPoints; i++) {
+            int x = hitboxLeft + (hitboxRight - hitboxLeft) * i / (checkPoints - 1);
+            if (isPixelBlocked(x, hitboxBottom)) return false;
+        }
+
+        // 좌측 세로선 체크
+        for (int i = 0; i < checkPoints; i++) {
+            int y = hitboxTop + (hitboxBottom - hitboxTop) * i / (checkPoints - 1);
+            if (isPixelBlocked(hitboxLeft, y)) return false;
+        }
+
+        // 우측 세로선 체크
+        for (int i = 0; i < checkPoints; i++) {
+            int y = hitboxTop + (hitboxBottom - hitboxTop) * i / (checkPoints - 1);
+            if (isPixelBlocked(hitboxRight, y)) return false;
+        }
+
+        return true;
     }
 
     /// 충돌 영역을 빨간색 반투명 박스로 표시하는 메서드
