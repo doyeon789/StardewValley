@@ -17,24 +17,39 @@ import Character.SpriteRenderer;
 import Character.Camera;
 
 public class TmxParser {
-    /** ========== 내부 클래스 ========== **/
+    /**
+     * ========== 내부 클래스 ==========
+     **/
     static class Tileset {
-        int firstGid;                           /// 타일셋의 시작 GID (Global ID)
-        String name;                            /// 타일셋 이름
-        int tileWidth;                          /// 개별 타일의 가로 크기
-        int tileHeight;                         /// 개별 타일의 세로 크기
-        int tileCount;                          /// 타일셋 내 총 타일 개수
-        int columns;                            /// 타일셋의 열(column) 수
-        String imagePath;                       /// 타일셋 이미지 파일 경로
-        BufferedImage image;                    /// 로드된 타일셋 이미지
+        int firstGid;
+        /// 타일셋의 시작 GID (Global ID)
+        String name;
+        /// 타일셋 이름
+        int tileWidth;
+        /// 개별 타일의 가로 크기
+        int tileHeight;
+        /// 개별 타일의 세로 크기
+        int tileCount;
+        /// 타일셋 내 총 타일 개수
+        int columns;
+        /// 타일셋의 열(column) 수
+        String imagePath;
+        /// 타일셋 이미지 파일 경로
+        BufferedImage image;
+        /// 로드된 타일셋 이미지
 
         Map<Integer, BufferedImage> tileCache = new HashMap<>(); /// 개별 타일 이미지 캐시
     }
+
     static class Layer {
-        String name;                            /// 레이어 이름
-        int width;                              /// 레이어 가로 크기 (타일 개수)
-        int height;                             /// 레이어 세로 크기 (타일 개수)
-        int[] data;                             /// 타일 GID 배열 데이터
+        String name;
+        /// 레이어 이름
+        int width;
+        /// 레이어 가로 크기 (타일 개수)
+        int height;
+        /// 레이어 세로 크기 (타일 개수)
+        int[] data;
+        /// 타일 GID 배열 데이터
         boolean visible = true;                 /// 레이어 표시 여부
     }
 
@@ -47,41 +62,84 @@ public class TmxParser {
         }
     }
 
-    /** ========== 맵 정보 ========== **/
-    private int mapWidth;                       /// 맵 가로 크기 (타일 개수)
-    private int mapHeight;                      /// 맵 세로 크기 (타일 개수)
-    private int tileWidth;                      /// 개별 타일의 가로 크기 (픽셀)
-    private int tileHeight;                     /// 개별 타일의 세로 크기 (픽셀)
-    private final List<Tileset> tilesets;             /// 타일셋 목록
+    /**
+     * ========== 맵 정보 ==========
+     **/
+    private int mapWidth;
+    /// 맵 가로 크기 (타일 개수)
+    private int mapHeight;
+    /// 맵 세로 크기 (타일 개수)
+    private int tileWidth;
+    /// 개별 타일의 가로 크기 (픽셀)
+    private int tileHeight;
+    /// 개별 타일의 세로 크기 (픽셀)
+    private final List<Tileset> tilesets;
+    /// 타일셋 목록
     private final List<Layer> layers;                 /// 레이어 목록
 
     /// 모든 PNG 이미지를 저장하는 맵 (파일명 -> 이미지)
     private final Map<String, BufferedImage> preloadedImages;
 
     /// 성능 최적화를 위한 캐시
-    private final Map<Integer, Tileset> gidToTilesetCache;     /// GID -> Tileset 매핑 캐시
+    private final Map<Integer, Tileset> gidToTilesetCache;
+    /// GID -> Tileset 매핑 캐시
     private final Map<Integer, BufferedImage> globalTileCache; /// GID -> 타일이미지 캐시
 
-    /** ========== GUI 컴포넌트 ========== **/
-    private final JFrame frame;                       /// 메인 윈도우
+    /**
+     * ========== GUI 컴포넌트 ==========
+     **/
+    private final JFrame frame;
+    /// 메인 윈도우
     private final TileMapCanvas canvas;               /// 타일맵 렌더링 캔버스
 
-    /** ========== 게임 시스템 ========== **/
-    private final SpriteRenderer sprite;              /// 플레이어 캐릭터 스프라이트
-    private final Camera camera;                      /// 카메라 시스템
+    /**
+     * ========== 게임 시스템 ==========
+     **/
+    private final SpriteRenderer sprite;
+    /// 플레이어 캐릭터 스프라이트
+    private final Camera camera;
+    /// 카메라 시스템
 
     private static final int TILE_SCALE = 3;   /// 타일 확대 비율
 
     /// 60 FPS 게임 루프 타이머
-    private final Set<String> keysPressed = new HashSet<>();  /// 현재 눌린 키들
-    private static final int GAME_FPS = 60;             /// 게임 FPS (초당 프레임)
+    private final Set<String> keysPressed = new HashSet<>();
+    /// 현재 눌린 키들
+    private static final int GAME_FPS = 60;
+    /// 게임 FPS (초당 프레임)
     private static final int MOVE_SPEED = 5;            /// 픽셀 단위 이동 속도
 
     /// 맵 중앙 정렬을 위한 오프셋
     private int mapOffsetX = 0;
     private int mapOffsetY = 0;
 
-    /** ========== 충돌 검사 시스템 ========== **/
+    /**
+     * 맵 전환 정보를 저장하는 클래스
+     */
+    private static class MapTransition {
+        String targetMapPath;    // 이동할 맵 파일 경로
+        int triggerTileX;       // 트리거 타일 X 좌표
+        int triggerTileY;       // 트리거 타일 Y 좌표
+        int destinationTileX;   // 목적지 타일 X 좌표
+        int destinationTileY;   // 목적지 타일 Y 좌표
+
+        MapTransition(String targetMapPath, int triggerX, int triggerY, int destX, int destY) {
+            this.targetMapPath = targetMapPath;
+            this.triggerTileX = triggerX;
+            this.triggerTileY = triggerY;
+            this.destinationTileX = destX;
+            this.destinationTileY = destY;
+        }
+    }
+
+    // 현재 로드된 맵과 전환 정보들
+    private String currentMapPath = "";
+    private List<MapTransition> mapTransitions = new ArrayList<>();
+
+
+    /**
+     * ========== 충돌 검사 시스템 ==========
+     **/
     private Layer collisionLayer = null;
     private boolean showCollisionDebug = true;
 
@@ -160,7 +218,7 @@ public class TmxParser {
         int newY = sprite.getY();
         boolean moved = false;
 
-        // 각 방향키에 대해 이동 처리
+        // 기존 이동 로직...
         if (keysPressed.contains("w")) {
             int testY = newY - MOVE_SPEED;
             if (isValidPlayerPosition(newX, testY)) {
@@ -190,7 +248,7 @@ public class TmxParser {
             }
         }
 
-        // 맵 경계 체크 (기존 로직 유지)
+        // 맵 경계 체크 (기존 로직)
         if (moved) {
             int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
             int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
@@ -200,9 +258,11 @@ public class TmxParser {
             int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
             int maxY = mapOffsetY + mapPixelHeight - sprite.getHeight();
 
-            // 경계 내에서만 이동 허용
             if (newX >= minX && newX <= maxX && newY >= minY && newY <= maxY) {
                 sprite.setPosition(newX, newY);
+
+                // ★ 여기에 맵 전환 체크 추가 ★
+                checkMapTransition(newX, newY);
             }
         }
     }
@@ -230,7 +290,7 @@ public class TmxParser {
     public void loadDefaultTmxFile(String Mappath) {
 
         File file = new File(Mappath);
-        if (file.exists()){
+        if (file.exists()) {
             if (loadTMX(Mappath)) {
                 frame.setTitle("TMX 타일맵 뷰어 - " + file.getName());
                 return;
@@ -635,14 +695,12 @@ public class TmxParser {
         // 정보 UI
         renderUI(g2d);
     }
-
     /// 카메라 모드에서 레이어 렌더링 (플레이어 앞/뒤 분리)
     private void renderLayersWithCamera(Graphics2D g2d, int startTileX, int startTileY, int endTileX, int endTileY,
                                         int scaledTileWidth, int scaledTileHeight, boolean frontLayersOnly) {
         for (Layer layer : layers) {
             if (!layer.visible) continue;
 
-            // 레이어 이름에 따른 렌더링 순서 결정
             // 레이어 이름에 따른 렌더링 순서 결정
             boolean isFrontLayer = "Front".equalsIgnoreCase(layer.name) ||
                     "AlwaysFront".equalsIgnoreCase(layer.name) ||
@@ -980,9 +1038,9 @@ public class TmxParser {
 
         // 플레이어 하단부의 히트박스 정의 (발 부분)
         int hitboxTopOffset = playerHeight - 23;    // 발에서 위로 13픽셀
-        int hitboxBottomOffset = playerHeight - 5;  // 발에서 위로 5픽셀
-        int hitboxLeftOffset = -8;                  // 좌측에서 8픽셀 안쪽
-        int hitboxRightOffset = playerWidth-8;      // 우측에서 8픽셀 안쪽
+        int hitboxBottomOffset = playerHeight - 1;  // 발에서 위로 5픽셀
+        int hitboxLeftOffset = 4;                  // 좌측에서 8픽셀 안쪽
+        int hitboxRightOffset = playerWidth - 4;      // 우측에서 8픽셀 안쪽
 
         // 히트박스의 네 모서리 점들
         int hitboxLeft = newX + hitboxLeftOffset;
@@ -1093,12 +1151,351 @@ public class TmxParser {
         }
     }
 
-    public Camera getCamera() { return camera; }           /// 카메라 객체 반환
-    public SpriteRenderer getSprite() { return sprite; }   /// 스프라이트 객체 반환
-    public int getMapWidth() { return mapWidth; }          /// 맵 가로 크기 반환 (타일 개수)
-    public int getMapHeight() { return mapHeight; }        /// 맵 세로 크기 반환 (타일 개수)
-    public int getTileWidth() { return tileWidth; }        /// 타일 가로 크기 반환 (픽셀)
-    public int getTileHeight() { return tileHeight; }      /// 타일 세로 크기 반환 (픽셀)
-    public int getMapOffsetX() { return mapOffsetX; }      /// 맵 X 오프셋 반환
-    public int getMapOffsetY() { return mapOffsetY; }      /// 맵 Y 오프셋 반환
+    /**
+     * 맵 전환 트리거 추가
+     */
+    public void addMapTransition(String fromMap, int triggerX, int triggerY,
+                                 String toMap, int destX, int destY) {
+        mapTransitions.add(new MapTransition(toMap, triggerX, triggerY, destX, destY));
+        System.out.println("맵 전환 추가: " + fromMap + "(" + triggerX + "," + triggerY +
+                ") -> " + toMap + "(" + destX + "," + destY + ")");
+    }
+
+    /**
+     * 여러 TMX 파일을 미리 파싱하고 이미지 캐싱
+     */
+    public void preloadMultipleTmxFiles(String[] tmxPaths) {
+        System.out.println("=== 다중 TMX 파일 미리 로드 시작 ===");
+
+        for (String tmxPath : tmxPaths) {
+            File file = new File(tmxPath);
+            if (file.exists()) {
+                System.out.println("미리 로드 중: " + tmxPath);
+                preloadTmxData(tmxPath);
+            } else {
+                System.err.println("파일을 찾을 수 없음: " + tmxPath);
+            }
+        }
+
+        System.out.println("=== 다중 TMX 파일 미리 로드 완료 ===");
+        System.out.println("총 캐시된 타일 이미지: " + globalTileCache.size());
+    }
+
+    /**
+     * 특정 TMX 파일의 데이터를 파싱하고 이미지만 캐싱 (화면 표시는 하지 않음)
+     */
+    private void preloadTmxData(String tmxPath) {
+        try {
+            // 임시로 저장할 컬렉션들
+            List<Tileset> tempTilesets = new ArrayList<>();
+            List<Layer> tempLayers = new ArrayList<>();
+
+            File tmxFile = new File(tmxPath);
+
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document doc = builder.parse(tmxFile);
+            doc.getDocumentElement().normalize();
+
+            // 맵 속성 파싱
+            Element mapElement = doc.getDocumentElement();
+            int tempMapWidth = Integer.parseInt(mapElement.getAttribute("width"));
+            int tempMapHeight = Integer.parseInt(mapElement.getAttribute("height"));
+            int tempTileWidth = Integer.parseInt(mapElement.getAttribute("tilewidth"));
+            int tempTileHeight = Integer.parseInt(mapElement.getAttribute("tileheight"));
+
+            // 타일셋 파싱
+            NodeList tilesetNodes = doc.getElementsByTagName("tileset");
+            for (int i = 0; i < tilesetNodes.getLength(); i++) {
+                Element tilesetElement = (Element) tilesetNodes.item(i);
+                Tileset tileset = new Tileset();
+
+                tileset.firstGid = Integer.parseInt(tilesetElement.getAttribute("firstgid"));
+                tileset.name = tilesetElement.getAttribute("name");
+                tileset.tileWidth = Integer.parseInt(tilesetElement.getAttribute("tilewidth"));
+                tileset.tileHeight = Integer.parseInt(tilesetElement.getAttribute("tileheight"));
+                tileset.tileCount = Integer.parseInt(tilesetElement.getAttribute("tilecount"));
+                tileset.columns = Integer.parseInt(tilesetElement.getAttribute("columns"));
+
+                // 이미지 경로 가져오기
+                NodeList imageNodes = tilesetElement.getElementsByTagName("image");
+                if (imageNodes.getLength() > 0) {
+                    Element imageElement = (Element) imageNodes.item(0);
+                    tileset.imagePath = imageElement.getAttribute("source");
+
+                    // 미리 로드된 이미지에서 찾기
+                    tileset.image = findImageByName(tileset.imagePath);
+
+                    if (tileset.image != null) {
+                        System.out.println("  타일셋 이미지 연결됨: " + tileset.imagePath);
+                    } else {
+                        System.err.println("  타일셋 이미지를 찾을 수 없습니다: " + tileset.imagePath);
+                    }
+                }
+
+                tempTilesets.add(tileset);
+            }
+
+            // 레이어 파싱
+            NodeList layerNodes = doc.getElementsByTagName("layer");
+            for (int i = 0; i < layerNodes.getLength(); i++) {
+                Element layerElement = (Element) layerNodes.item(i);
+                Layer layer = new Layer();
+
+                layer.name = layerElement.getAttribute("name");
+                layer.width = Integer.parseInt(layerElement.getAttribute("width"));
+                layer.height = Integer.parseInt(layerElement.getAttribute("height"));
+
+                // 투명도 체크
+                String opacity = layerElement.getAttribute("opacity");
+                if (!opacity.isEmpty() && Float.parseFloat(opacity) == 0.0f) {
+                    layer.visible = false;
+                }
+
+                // 데이터 파싱 (CSV 형식)
+                NodeList dataNodes = layerElement.getElementsByTagName("data");
+                if (dataNodes.getLength() > 0) {
+                    Element dataElement = (Element) dataNodes.item(0);
+                    String encoding = dataElement.getAttribute("encoding");
+
+                    if ("csv".equals(encoding)) {
+                        String csvData = dataElement.getTextContent().trim();
+                        String[] values = csvData.split(",");
+                        layer.data = new int[values.length];
+
+                        for (int j = 0; j < values.length; j++) {
+                            layer.data[j] = Integer.parseInt(values[j].trim());
+                        }
+                    }
+                }
+
+                tempLayers.add(layer);
+            }
+
+            // 이 맵의 타일들을 글로벌 캐시에 미리 로드
+            cacheTilesFromLayers(tempTilesets, tempLayers);
+
+            System.out.println("  완료: " + extractMapName(tmxPath) + " (" + tempTilesets.size() + " tilesets, " + tempLayers.size() + " layers)");
+
+        } catch (Exception e) {
+            System.err.println("TMX 미리 로드 실패: " + tmxPath + " - " + e.getMessage());
+        }
+    }
+
+    /**
+     * 특정 레이어들의 타일 이미지를 글로벌 캐시에 미리 생성
+     */
+    private void cacheTilesFromLayers(List<Tileset> tempTilesets, List<Layer> tempLayers) {
+        // 임시 타일셋 캐시 구축
+        Map<Integer, Tileset> tempGidToTilesetCache = new HashMap<>();
+        for (Tileset tileset : tempTilesets) {
+            for (int i = 0; i < tileset.tileCount; i++) {
+                int gid = tileset.firstGid + i;
+                tempGidToTilesetCache.put(gid, tileset);
+            }
+        }
+
+        int cachedCount = 0;
+
+        for (Layer layer : tempLayers) {
+            if (!layer.visible) continue;
+
+            Set<Integer> uniqueGids = new HashSet<>();
+            for (int gid : layer.data) {
+                if (gid > 0) uniqueGids.add(gid);
+            }
+
+            for (int gid : uniqueGids) {
+                if (!globalTileCache.containsKey(gid)) {  // 이미 캐시된 타일은 스킵
+                    BufferedImage tileImage = createTileImageFromTilesets(gid, tempGidToTilesetCache);
+                    if (tileImage != null) {
+                        globalTileCache.put(gid, tileImage);
+                        cachedCount++;
+                    }
+                }
+            }
+        }
+
+        System.out.println("    새로 캐시된 타일: " + cachedCount + "개");
+    }
+
+    /**
+     * 임시 타일셋 맵을 사용해서 타일 이미지 생성
+     */
+    private BufferedImage createTileImageFromTilesets(int gid, Map<Integer, Tileset> tempGidToTilesetCache) {
+        if (gid == 0) return null;
+
+        Tileset tileset = tempGidToTilesetCache.get(gid);
+        if (tileset == null || tileset.image == null) return null;
+
+        int tileId = gid - tileset.firstGid;
+        int tilesPerRow = tileset.columns;
+        int tileX = (tileId % tilesPerRow) * tileset.tileWidth;
+        int tileY = (tileId / tilesPerRow) * tileset.tileHeight;
+
+        try {
+            return tileset.image.getSubimage(tileX, tileY, tileset.tileWidth, tileset.tileHeight);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 현재 위치에서 맵 전환이 필요한지 체크
+     */
+    private void checkMapTransition(int playerX, int playerY) {
+        // 플레이어의 타일 좌표 계산
+        int playerTileX = (playerX - mapOffsetX) / (tileWidth * TILE_SCALE);
+        int playerTileY = (playerY - mapOffsetY) / (tileHeight * TILE_SCALE);
+
+        // 모든 전환 트리거 체크
+        for (MapTransition transition : mapTransitions) {
+            if (playerTileX == transition.triggerTileX &&
+                    playerTileY == transition.triggerTileY) {
+
+                System.out.println("맵 전환 트리거 발동: (" + playerTileX + "," + playerTileY +
+                        ") -> " + transition.targetMapPath);
+
+                // 맵 전환 실행
+                switchToMap(transition.targetMapPath,
+                        transition.destinationTileX,
+                        transition.destinationTileY);
+                break;
+            }
+        }
+    }
+
+    /**
+     * 다른 맵으로 전환
+     */
+    private void switchToMap(String targetMapPath, int destinationTileX, int destinationTileY) {
+        System.out.println("맵 전환 시작: " + currentMapPath + " -> " + targetMapPath);
+
+        // 현재 맵 정보 백업 (필요시 되돌리기 위해)
+        String previousMap = currentMapPath;
+
+        // 새로운 맵 로드
+        if (loadTMX(targetMapPath)) {
+            currentMapPath = targetMapPath;
+
+            // 플레이어를 목적지 위치로 이동
+            setPlayerStartPosition(destinationTileX, destinationTileY);
+
+            // 창 제목 업데이트
+            String mapName = extractMapName(targetMapPath);
+            frame.setTitle("TMX 타일맵 뷰어 - " + mapName);
+
+            System.out.println("맵 전환 완료: " + mapName +
+                    " 위치(" + destinationTileX + "," + destinationTileY + ")");
+
+            // 화면 갱신
+            SwingUtilities.invokeLater(() -> {
+                canvas.revalidate();
+                canvas.repaint();
+            });
+
+        } else {
+            System.err.println("맵 전환 실패: " + targetMapPath);
+        }
+    }
+
+    /**
+     * 현재 맵 경로 설정 (loadTMX 메서드에서 호출)
+     */
+    public void setCurrentMapPath(String mapPath) {
+        this.currentMapPath = mapPath;
+    }
+
+    /**
+     * 파일 경로에서 맵 이름 추출 (기존 메서드를 public으로)
+     */
+    public String extractMapName(String filePath) {
+        String fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
+        if (fileName.contains(".")) {
+            fileName = fileName.substring(0, fileName.lastIndexOf('.'));
+        }
+        return fileName;
+    }
+
+    public Camera getCamera() {
+        return camera;
+    }
+
+    /// 카메라 객체 반환
+    public SpriteRenderer getSprite() {
+        return sprite;
+    }
+
+    /// 스프라이트 객체 반환
+    public int getMapWidth() {
+        return mapWidth;
+    }
+
+    /// 맵 가로 크기 반환 (타일 개수)
+    public int getMapHeight() {
+        return mapHeight;
+    }
+
+    /// 맵 세로 크기 반환 (타일 개수)
+    public int getTileWidth() {
+        return tileWidth;
+    }
+
+    /// 타일 가로 크기 반환 (픽셀)
+    public int getTileHeight() {
+        return tileHeight;
+    }
+
+    /// 타일 세로 크기 반환 (픽셀)
+    public int getMapOffsetX() {
+        return mapOffsetX;
+    }
+
+    /// 맵 X 오프셋 반환
+    public int getMapOffsetY() {
+        return mapOffsetY;
+    }      /// 맵 Y 오프셋 반환
+
+    /**
+     * 프레임 객체에 접근할 수 있도록 하는 getter 메서드
+     * MapManager에서 키 이벤트를 처리하기 위해 필요
+     */
+    public JFrame getFrame() {
+        return frame;
+    }
+
+    /**
+     * 캔버스 객체에 접근할 수 있도록 하는 getter 메서드
+     * 키 리스너 추가를 위해 필요
+     */
+    public TileMapCanvas getCanvas() {
+        return canvas;
+    }
+
+    /**
+     * 맵 클리어 메서드 (새로운 맵 로드 전 이전 맵 데이터 정리)
+     * 메모리 누수 방지를 위해 권장
+     */
+    public void clearCurrentMap() {
+        // 기존 데이터 초기화
+        tilesets.clear();
+        layers.clear();
+        gidToTilesetCache.clear();
+        globalTileCache.clear();
+
+        // 맵 정보 초기화
+        mapWidth = 0;
+        mapHeight = 0;
+        tileWidth = 0;
+        tileHeight = 0;
+
+        // 충돌 레이어 초기화
+        collisionLayer = null;
+
+        // 화면 갱신
+        SwingUtilities.invokeLater(() -> {
+            canvas.revalidate();
+            canvas.repaint();
+        });
+    }
 }
