@@ -26,7 +26,7 @@ public class Main {
                 viewer.setCurrentMapPath(mapPaths[0]);
 
                 // 플레이어 시작 위치 설정
-                viewer.setPlayerStartPosition(10, 10);
+                viewer.setPlayerStartPosition(67, 15);
 
                 // 맵 전환 트리거 설정
                 setupMapTransitions(viewer);
@@ -41,21 +41,19 @@ public class Main {
         });
     }
 
-    /**
-     * 맵 간 전환 트리거 설정
-     */
+
     private static void setupMapTransitions(TmxParser viewer) {
         // Farm -> FarmHouse 전환 (집 입구 타일 밟으면 집 안으로)
         viewer.addMapTransition("resource/Farm.tmx",
-                3, 6,
+                77, 8,                   // Farm의 (3, 6) 타일 밟으면
                 "resource/FarmHouse.tmx",
-                3, 8);                     // FarmHouse의 (5, 12)로 이동
+                3, 6);                     // FarmHouse의 (5, 8)로 이동
 
         // FarmHouse -> Farm 전환 (집 문 밟으면 밖으로)
         viewer.addMapTransition("resource/FarmHouse.tmx",
-                3, 9,                    // FarmHouse의 (5, 12) 타일 밟으면
+                3, 9,                    // FarmHouse의 (3, 9) 타일 밟으면
                 "resource/Farm.tmx",
-                10, 10);                   // Farm의 (15, 8)로 이동
+                67, 15);                   // Farm의 (15, 8)로 이동
 
         // 추가 전환점들 (필요에 따라)
         // viewer.addMapTransition("resource/Farm.tmx", 25, 30, "resource/AnotherMap.tmx", 10, 10);
