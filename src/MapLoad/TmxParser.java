@@ -610,8 +610,19 @@ public class TmxParser {
                     int index = y * layer.width + x;
                     int gid = layer.data[index];
                     if (gid == 0) continue;
-                    g2d.drawImage(globalTileCache.get(gid), camera.worldToScreenX(x * scaledTileWidth),
-                            camera.worldToScreenY(y * scaledTileHeight), scaledTileWidth, scaledTileHeight, null);
+
+                    BufferedImage tileImage = globalTileCache.get(gid);
+                    if (tileImage != null) {
+                        int screenX = camera.worldToScreenX(x * scaledTileWidth);
+                        int screenY = camera.worldToScreenY(y * scaledTileHeight);
+
+                        // 커스텀 Path 타일인지 확인
+                        if (pathTileCustomizations.containsKey(gid)) {
+                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight);
+                        } else {
+                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+                        }
+                    }
                 }
             }
         }
@@ -638,11 +649,39 @@ public class TmxParser {
                     if (tileImage != null) {
                         int screenX = mapOffsetX + x * scaledTileWidth;
                         int screenY = mapOffsetY + y * scaledTileHeight;
-                        g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+
+                        // 커스텀 Path 타일인지 확인
+                        if (pathTileCustomizations.containsKey(gid)) {
+                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight);
+                        } else {
+                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
+                        }
                     }
                 }
             }
         }
+    }
+
+    private void renderCustomPathTile(Graphics2D g2d, BufferedImage tileImage, int screenX, int screenY, int tileWidth, int tileHeight) {
+        // 원본 이미지 크기
+        int originalWidth = tileImage.getWidth();
+        int originalHeight = tileImage.getHeight();
+
+        // 비율 계산
+        double scaleX = (double) tileWidth / originalWidth;
+        double scaleY = (double) tileHeight / originalHeight;
+
+        // 비율 유지를 위해 더 작은 스케일 사용
+        double scale = Math.min(scaleX, scaleY);
+
+        int newWidth = (int) (originalWidth * scale);
+        int newHeight = (int) (originalHeight * scale);
+
+        // 중앙 정렬을 위한 오프셋 계산
+        int offsetX = (tileWidth - newWidth) / 2;
+        int offsetY = (tileHeight - newHeight) / 2;
+
+        g2d.drawImage(tileImage, screenX + offsetX, screenY + offsetY, newWidth, newHeight, null);
     }
 
     private void renderPlayerWithCamera(Graphics2D g2d) {
