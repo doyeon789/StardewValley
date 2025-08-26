@@ -10,6 +10,7 @@ import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 import java.util.List;
 
@@ -112,6 +113,10 @@ public class TmxParser {
     /// 맵 중앙 정렬을 위한 오프셋
     private int mapOffsetX = 0;
     private int mapOffsetY = 0;
+
+    /// TmxParser 클래스 필드에 추가
+    private Map<Integer, BufferedImage> tileOverrides = new HashMap<>();
+
 
     /**
      * 맵 전환 정보를 저장하는 클래스
@@ -1324,6 +1329,10 @@ public class TmxParser {
      */
     private BufferedImage createTileImageFromTilesets(int gid, Map<Integer, Tileset> tempGidToTilesetCache) {
         if (gid == 0) return null;
+
+        if (tileOverrides.containsKey(gid)) {
+            return tileOverrides.get(gid);
+        }
 
         Tileset tileset = tempGidToTilesetCache.get(gid);
         if (tileset == null || tileset.image == null) return null;

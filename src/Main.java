@@ -1,4 +1,3 @@
-import MapLoad.MapManager;
 import MapLoad.TmxParser;
 
 import javax.swing.*;
