@@ -26,6 +26,9 @@ public class Main {
                 // 플레이어 시작 위치 설정
                 viewer.setPlayerStartPosition(67, 15);
 
+                setupMapTransitions(viewer);
+                setupPathCustomizations(viewer);
+
                 // 맵 전환 트리거 설정
                 setupMapTransitions(viewer);
 
@@ -39,6 +42,14 @@ public class Main {
         });
     }
 
+    private static void setupPathCustomizations(TmxParser viewer) {
+        viewer.printPathLayerGids();
+
+
+        viewer.addPathTileCustomization(2113, "resource/TerrainFeatures/grass.png", 0, 14, 20);
+
+        System.out.println("Path 타일 커스터마이징 설정 완료");
+    }
 
     private static void setupMapTransitions(TmxParser viewer) {
         // Farm -> FarmHouse 전환 (집 입구 타일 밟으면 집 안으로)

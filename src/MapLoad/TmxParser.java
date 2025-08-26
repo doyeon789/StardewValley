@@ -89,12 +89,28 @@ public class TmxParser {
         }
     }
 
+    static class PathTileCustomization {
+        String imagePath;
+        int targetTileIndex;
+        int tileWidth;
+        int tileHeight;
+
+        PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight) {
+            this.imagePath = imagePath;
+            this.targetTileIndex = targetTileIndex;
+            this.tileWidth = tileWidth;
+            this.tileHeight = tileHeight;
+        }
+    }
+
+    private Map<Integer, PathTileCustomization> pathTileCustomizations = new HashMap<>();
+    private Map<String, BufferedImage> customPathImages = new HashMap<>();
+
     private String currentMapPath = "";
     private List<MapTransition> mapTransitions = new ArrayList<>();
 
     // 충돌 검사 시스템
     private Layer collisionLayer = null;
-    private boolean showCollisionDebug = true;
 
     public TmxParser() {
         preloadAllPngImages();
@@ -210,32 +226,6 @@ public class TmxParser {
         } else {
             mapOffsetY = 0;
         }
-    }
-
-    public void loadDefaultTmxFile(String Mappath) {
-        File file = new File(Mappath);
-        if (file.exists()) {
-            if (loadTMX(Mappath)) {
-                frame.setTitle("TMX 타일맵 뷰어 - " + file.getName());
-                return;
-            }
-        }
-
-        // resource 디렉토리에서 첫 번째 .tmx 파일 찾기
-        File resourceDir = new File("resource");
-        if (resourceDir.exists() && resourceDir.isDirectory()) {
-            File[] tmxFiles = resourceDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".tmx"));
-            if (tmxFiles != null && tmxFiles.length > 0) {
-                String path = tmxFiles[0].getAbsolutePath();
-                System.out.println("resource 디렉토리에서 TMX 파일 발견: " + path);
-                if (loadTMX(path)) {
-                    frame.setTitle("TMX 타일맵 뷰어 - " + tmxFiles[0].getName());
-                    return;
-                }
-            }
-        }
-
-        System.out.println("기본 TMX 파일을 찾을 수 없습니다.");
     }
 
     public void show() {
@@ -486,6 +476,10 @@ public class TmxParser {
     private void preloadTileImages() {
         new Thread(() -> {
             System.out.println("타일 이미지 캐싱 시작...");
+
+            // 커스텀 Path 이미지들 먼저 로드
+            loadCustomPathImages();
+
             int cachedCount = 0;
 
             Set<Integer> uniqueGids = new HashSet<>();
@@ -507,12 +501,21 @@ public class TmxParser {
         }).start();
     }
 
+
     private Tileset findTilesetForGid(int gid) {
         return gidToTilesetCache.get(gid);
     }
 
     private BufferedImage createTileImage(int gid) {
         if (gid == 0) return null;
+
+        // Path 레이어용 커스텀 타일 체크
+        if (pathTileCustomizations.containsKey(gid)) {
+            BufferedImage customTile = createCustomPathTileImage(gid);
+            if (customTile != null) {
+                return customTile;
+            }
+        }
 
         Tileset tileset = findTilesetForGid(gid);
         if (tileset == null || tileset.image == null) return null;
@@ -1065,6 +1068,14 @@ public class TmxParser {
     private BufferedImage createTileImageFromTilesets(int gid, Map<Integer, Tileset> tempGidToTilesetCache) {
         if (gid == 0) return null;
 
+        // Path 레이어용 커스텀 타일 체크
+        if (pathTileCustomizations.containsKey(gid)) {
+            BufferedImage customTile = createCustomPathTileImage(gid);
+            if (customTile != null) {
+                return customTile;
+            }
+        }
+
         if (tileOverrides.containsKey(gid)) {
             return tileOverrides.get(gid);
         }
@@ -1082,6 +1093,112 @@ public class TmxParser {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    public void addPathTileCustomization(int gid, String imagePath, int targetTileIndex, int tileWidth, int tileHeight) {
+        pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex, tileWidth, tileHeight));
+        System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath + " [인덱스: " + targetTileIndex + ", 크기: " + tileWidth + "x" + tileHeight + "]");
+    }
+
+    // 4. 커스텀 Path 이미지 로드 메서드 (TmxParser 클래스에 추가)
+    private void loadCustomPathImages() {
+        for (PathTileCustomization customization : pathTileCustomizations.values()) {
+            if (!customPathImages.containsKey(customization.imagePath)) {
+                BufferedImage image = findImageByName(customization.imagePath);
+                if (image != null) {
+                    customPathImages.put(customization.imagePath, image);
+                    System.out.println("커스텀 Path 이미지 로드됨: " + customization.imagePath);
+                } else {
+                    System.err.println("커스텀 Path 이미지를 찾을 수 없음: " + customization.imagePath);
+                }
+            }
+        }
+    }
+
+    // 5. 커스텀 Path 타일 이미지 생성 메서드 (TmxParser 클래스에 추가)
+    private BufferedImage createCustomPathTileImage(int gid) {
+        PathTileCustomization customization = pathTileCustomizations.get(gid);
+        if (customization == null) return null;
+
+        BufferedImage sourceImage = customPathImages.get(customization.imagePath);
+        if (sourceImage == null) return null;
+
+        try {
+            // 타일셋에서 특정 인덱스의 타일 추출
+            int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
+            int tileX = (customization.targetTileIndex % tilesPerRow) * customization.tileWidth;
+            int tileY = (customization.targetTileIndex / tilesPerRow) * customization.tileHeight;
+
+            BufferedImage customTile = sourceImage.getSubimage(tileX, tileY, customization.tileWidth, customization.tileHeight);
+            System.out.println("커스텀 Path 타일 생성됨: GID " + gid + " -> 인덱스 " + customization.targetTileIndex + " (" + tileX + ", " + tileY + ")");
+            return customTile;
+
+        } catch (Exception e) {
+            System.err.println("커스텀 Path 타일 생성 실패: GID " + gid + " - " + e.getMessage());
+            return null;
+        }
+    }
+
+    // 9. Path 레이어 전용 헬퍼 메서드들 (TmxParser 클래스에 추가)
+    public void clearPathCustomizations() {
+        pathTileCustomizations.clear();
+        customPathImages.clear();
+        System.out.println("모든 Path 타일 커스터마이징이 초기화되었습니다.");
+    }
+
+    public void removePathCustomization(int gid) {
+        if (pathTileCustomizations.remove(gid) != null) {
+            // 글로벌 캐시에서도 제거하여 다시 로드되도록 함
+            globalTileCache.remove(gid);
+            System.out.println("Path 타일 커스터마이징 제거됨: GID " + gid);
+        }
+    }
+
+    public boolean hasPathCustomization(int gid) {
+        return pathTileCustomizations.containsKey(gid);
+    }
+
+    // 10. Path 레이어의 GID 확인 헬퍼 메서드 (TmxParser 클래스에 추가)
+    public void printPathLayerGids() {
+        for (Layer layer : layers) {
+            if ("PATHS".equals(layer.layerType)) {
+                System.out.println("=== Path 레이어 '" + layer.name + "' GID 정보 ===");
+                Set<Integer> uniqueGids = new HashSet<>();
+
+                for (int y = 0; y < layer.height; y++) {
+                    for (int x = 0; x < layer.width; x++) {
+                        int index = y * layer.width + x;
+                        if (index < layer.data.length) {
+                            int gid = layer.data[index];
+                            if (gid > 0) {
+                                uniqueGids.add(gid);
+                            }
+                        }
+                    }
+                }
+
+                System.out.println("사용 중인 GID들: " + uniqueGids);
+                System.out.println("총 " + uniqueGids.size() + "개의 서로 다른 타일이 사용됨");
+                return; // 첫 번째 Path 레이어만 출력
+            }
+        }
+        System.out.println("Path 레이어를 찾을 수 없습니다.");
+    }
+
+    // 11. 특정 위치의 Path 타일 GID 확인 메서드 (TmxParser 클래스에 추가)
+    public int getPathTileGidAt(int tileX, int tileY) {
+        for (Layer layer : layers) {
+            if ("PATHS".equals(layer.layerType)) {
+                if (tileX >= 0 && tileX < layer.width && tileY >= 0 && tileY < layer.height) {
+                    int index = tileY * layer.width + tileX;
+                    if (index < layer.data.length) {
+                        return layer.data[index];
+                    }
+                }
+                break; // 첫 번째 Path 레이어만 확인
+            }
+        }
+        return 0; // GID 0은 빈 타일
     }
 
     // Getter 메서드들
@@ -1108,22 +1225,5 @@ public class TmxParser {
     public JFrame getFrame() { return frame; }
     public TileMapCanvas getCanvas() { return canvas; }
 
-    public void clearCurrentMap() {
-        tilesets.clear();
-        layers.clear();
-        gidToTilesetCache.clear();
-        globalTileCache.clear();
 
-        mapWidth = 0;
-        mapHeight = 0;
-        tileWidth = 0;
-        tileHeight = 0;
-
-        collisionLayer = null;
-
-        SwingUtilities.invokeLater(() -> {
-            canvas.revalidate();
-            canvas.repaint();
-        });
-    }
 }
