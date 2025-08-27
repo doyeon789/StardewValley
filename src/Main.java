@@ -66,8 +66,8 @@ public class Main {
         viewer.addPathTileCustomization(86,"resource/Maps/springobjects.png",
                 156, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,-16, false);
         //Big Stone
-        //viewer.addPathTileCustomization(85,"resource/Maps/springobjects.png",
-        //       178, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,0, false);
+        viewer.addPathTileCustomization(85,"resource/Maps/springobjects.png",
+               168, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,0, false);
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
     }
