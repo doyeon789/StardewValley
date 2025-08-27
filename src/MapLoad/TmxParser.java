@@ -828,15 +828,12 @@ public class TmxParser {
                                  int gid, int tileX, int tileY) {
 
 
-
-
-
-
-
         PathTileCustomization customization = pathTileCustomizations.get(gid);
         if (customization == null) return;
 
-        // 각 타일 위치마다 고유한 키 생성
+        BufferedImage cachedSourceImage = customPathImages.get(customization.imagePath);
+        if (cachedSourceImage == null) return;
+
         String tileKey = gid + "_" + tileX + "_" + tileY;
 
         // 캐시에서 풀 위치들 가져오기, 없으면 생성
@@ -851,7 +848,9 @@ public class TmxParser {
             int drawX = screenX + grass.x;
             int drawY = screenY + grass.y;
 
-            BufferedImage grassTile = extractGrassTileByIndex(sourceImage, grass.index, customization);
+            BufferedImage[] preExtractedTiles = preExtractedGrassTiles.get(customization.imagePath);
+            BufferedImage grassTile = (preExtractedTiles != null && grass.index < preExtractedTiles.length)
+                    ? preExtractedTiles[grass.index] : null;
             if (grassTile != null) {
                 g2d.drawImage(grassTile, drawX, drawY,
                         customization.tileWidth, customization.tileHeight, null);
@@ -1328,18 +1327,37 @@ public class TmxParser {
     }
 
     // 4. 커스텀 Path 이미지 로드 메서드 (TmxParser 클래스에 추가)
+    private Map<String, BufferedImage[]> preExtractedGrassTiles = new HashMap<>();
+
     private void loadCustomPathImages() {
         for (PathTileCustomization customization : pathTileCustomizations.values()) {
             if (!customPathImages.containsKey(customization.imagePath)) {
                 BufferedImage image = findImageByName(customization.imagePath);
                 if (image != null) {
                     customPathImages.put(customization.imagePath, image);
-                    System.out.println("커스텀 Path 이미지 로드됨: " + customization.imagePath);
-                } else {
-                    System.err.println("커스텀 Path 이미지를 찾을 수 없음: " + customization.imagePath);
+
+                    // 잔디 타일이면 개별 타일들을 미리 추출
+                    if (customization.isGrass) {
+                        BufferedImage[] grassTiles = extractAllGrassTiles(image, customization);
+                        preExtractedGrassTiles.put(customization.imagePath, grassTiles);
+                    }
                 }
             }
         }
+    }
+
+    private BufferedImage[] extractAllGrassTiles(BufferedImage sourceImage, PathTileCustomization customization) {
+        int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
+        int totalTiles = (sourceImage.getHeight() / customization.tileHeight) * tilesPerRow;
+        BufferedImage[] tiles = new BufferedImage[Math.min(totalTiles, 3)]; // 0,1,2 인덱스만
+
+        for (int i = 0; i < tiles.length; i++) {
+            int tileX = (i % tilesPerRow) * customization.tileWidth;
+            int tileY = (i / tilesPerRow) * customization.tileHeight;
+            tiles[i] = sourceImage.getSubimage(tileX, tileY, customization.tileWidth, customization.tileHeight);
+        }
+
+        return tiles;
     }
 
     // 5. 커스텀 Path 타일 이미지 생성 메서드 (TmxParser 클래스에 추가)
@@ -1451,6 +1469,4 @@ public class TmxParser {
     public int getMapOffsetY() { return mapOffsetY; }
     public JFrame getFrame() { return frame; }
     public TileMapCanvas getCanvas() { return canvas; }
-
-
 }
