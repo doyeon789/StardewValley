@@ -45,9 +45,27 @@ public class Main {
     private static void setupPathCustomizations(TmxParser viewer) {
         viewer.printPathLayerGids();
 
+        //Grass
         viewer.addPathTileCustomization(87, "resource/TerrainFeatures/grass.png",
                 0, 15, 20, RenderMode.ASPECT_FILL, true);
 
+        //small Bush
+        viewer.addPathTileCustomization(91,"resource/TileSheets/bushes.png",
+                56, 16, 32, RenderMode.ASPECT_FILL, false);
+
+        //Big Bush
+        viewer.addPathTileCustomization(90,"resource/TileSheets/bushes.png",
+                0, 32, 45, RenderMode.ORIGINAL_SIZE, false);
+
+        // Nothing
+        viewer.addPathTileCustomization(94,"resource/Maps/paths.png",
+                0, 16, 16, RenderMode.ASPECT_FIT, false);
+        viewer.addPathTileCustomization(95,"resource/Maps/paths.png",
+                0, 16, 16, RenderMode.ASPECT_FIT, false);
+
+        // big Tree stump
+        viewer.addPathTileCustomization(86,"resource/Maps/springobjects.png",
+                156, 32, 32, RenderMode.ORIGINAL_SIZE, false);
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
     }

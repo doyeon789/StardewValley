@@ -22,8 +22,8 @@ public class TmxParser {
     private static final Map<String, Integer> LAYER_ORDER = Map.of(
             "BACK", 0,
             "BUILDINGS", 1,
-            "PATHS", 2,
-            "FRONT", 3,
+            "FRONT", 2,
+            "PATHS", 3,
             "ALWAYSFRONT", 4
     );
 
@@ -702,14 +702,16 @@ public class TmxParser {
                 scale = Math.max((double) tileWidth / originalWidth, (double) tileHeight / originalHeight);
                 renderWidth = (int) (originalWidth * scale);
                 renderHeight = (int) (originalHeight * scale);
-                renderX = screenX + (tileWidth - renderWidth) / 2 + customization.offsetX;
-                renderY = screenY + (tileHeight - renderHeight) / 2 + customization.offsetY;
+                renderX = screenX + customization.offsetX;
+                renderY = screenY + tileHeight - renderHeight + customization.offsetY;
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
             case ORIGINAL_SIZE:
-                renderWidth = originalWidth;
-                renderHeight = originalHeight;
+                renderWidth = customization.tileWidth * TILE_SCALE;
+                renderHeight = customization.tileHeight * TILE_SCALE;
+                renderX = screenX + customization.offsetX;
+                renderY = screenY + tileHeight - renderHeight + customization.offsetY;
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
