@@ -89,21 +89,39 @@ public class TmxParser {
         }
     }
 
-    static class PathTileCustomization {
+    public static class PathTileCustomization {
         String imagePath;
         int targetTileIndex;
         int tileWidth;
         int tileHeight;
+        RenderMode renderMode;
+        int offsetX, offsetY; // 위치 조정용
+
+        public enum RenderMode {
+            STRETCH,        // 타일 크기에 맞게 늘리기 (기본)
+            ASPECT_FIT,     // 비율 유지하며 타일 안에 맞추기
+            ASPECT_FILL,    // 비율 유지하며 타일을 채우기
+            ORIGINAL_SIZE,  // 원본 크기 유지
+            CENTER         // 중앙 정렬
+        }
 
         PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight) {
+            this(imagePath, targetTileIndex, tileWidth, tileHeight, RenderMode.STRETCH, 0, 0);
+        }
+
+        PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
+                              RenderMode renderMode, int offsetX, int offsetY) {
             this.imagePath = imagePath;
             this.targetTileIndex = targetTileIndex;
             this.tileWidth = tileWidth;
             this.tileHeight = tileHeight;
+            this.renderMode = renderMode;
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
         }
     }
 
-    private Map<Integer, PathTileCustomization> pathTileCustomizations = new HashMap<>();
+    public Map<Integer, PathTileCustomization> pathTileCustomizations = new HashMap<>();
     private Map<String, BufferedImage> customPathImages = new HashMap<>();
 
     private String currentMapPath = "";
@@ -618,7 +636,7 @@ public class TmxParser {
 
                         // 커스텀 Path 타일인지 확인
                         if (pathTileCustomizations.containsKey(gid)) {
-                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight);
+                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, gid);
                         } else {
                             g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
                         }
@@ -652,7 +670,7 @@ public class TmxParser {
 
                         // 커스텀 Path 타일인지 확인
                         if (pathTileCustomizations.containsKey(gid)) {
-                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight);
+                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, gid);
                         } else {
                             g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
                         }
@@ -662,26 +680,83 @@ public class TmxParser {
         }
     }
 
-    private void renderCustomPathTile(Graphics2D g2d, BufferedImage tileImage, int screenX, int screenY, int tileWidth, int tileHeight) {
-        // 원본 이미지 크기
+    private void renderCustomPathTile(Graphics2D g2d, BufferedImage tileImage,
+                                      int screenX, int screenY, int tileWidth, int tileHeight, int gid) {
+        PathTileCustomization customization = pathTileCustomizations.get(gid);
+        if (customization == null) {
+            g2d.drawImage(tileImage, screenX, screenY, tileWidth, tileHeight, null);
+            return;
+        }
+
         int originalWidth = tileImage.getWidth();
         int originalHeight = tileImage.getHeight();
 
-        // 비율 계산
-        double scaleX = (double) tileWidth / originalWidth;
-        double scaleY = (double) tileHeight / originalHeight;
+        int renderX = screenX + customization.offsetX;
+        int renderY = screenY + customization.offsetY;
+        int renderWidth = tileWidth;
+        int renderHeight = tileHeight;
 
-        // 비율 유지를 위해 더 작은 스케일 사용
-        double scale = Math.min(scaleX, scaleY);
+        switch (customization.renderMode) {
+            case STRETCH:
+                // 기본 동작 - 타일 크기에 맞게 늘리기
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
 
-        int newWidth = (int) (originalWidth * scale);
-        int newHeight = (int) (originalHeight * scale);
+            case ASPECT_FIT:
+                // 비율 유지하며 타일 안에 맞추기
+                double scaleX = (double) tileWidth / originalWidth;
+                double scaleY = (double) tileHeight / originalHeight;
+                double scale = Math.min(scaleX, scaleY);
 
-        // 중앙 정렬을 위한 오프셋 계산
-        int offsetX = (tileWidth - newWidth) / 2;
-        int offsetY = (tileHeight - newHeight) / 2;
+                renderWidth = (int) (originalWidth * scale);
+                renderHeight = (int) (originalHeight * scale);
+                renderX = screenX + (tileWidth - renderWidth) / 2 + customization.offsetX;
+                renderY = screenY + (tileHeight - renderHeight) / 2 + customization.offsetY;
 
-        g2d.drawImage(tileImage, screenX + offsetX, screenY + offsetY, newWidth, newHeight, null);
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+
+            case ASPECT_FILL:
+                // 비율 유지하며 타일을 채우기 (잘릴 수 있음)
+                scaleX = (double) tileWidth / originalWidth;
+                scaleY = (double) tileHeight / originalHeight;
+                scale = Math.max(scaleX, scaleY);
+
+                renderWidth = (int) (originalWidth * scale);
+                renderHeight = (int) (originalHeight * scale);
+                renderX = screenX + (tileWidth - renderWidth) / 2 + customization.offsetX;
+                renderY = screenY + (tileHeight - renderHeight) / 2 + customization.offsetY;
+
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+
+            case ORIGINAL_SIZE:
+                // 원본 크기 유지
+                renderWidth = originalWidth*4;
+                renderHeight = originalHeight*4;
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+
+            case CENTER:
+                // 원본 크기로 중앙 정렬
+                renderWidth = originalWidth;
+                renderHeight = originalHeight;
+                renderX = screenX + (tileWidth - renderWidth) / 2 + customization.offsetX;
+                renderY = screenY + (tileHeight - renderHeight) / 2 + customization.offsetY;
+
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+        }
+    }
+
+    public void addPathTileCustomization(int gid, String imagePath, int targetTileIndex,
+                                         int tileWidth, int tileHeight,
+                                         PathTileCustomization.RenderMode renderMode,
+                                         boolean isGrass) {
+        pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex,
+                tileWidth, tileHeight, renderMode, 0, 0));
+        System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath +
+                " [모드: " + renderMode + "]");
     }
 
     private void renderPlayerWithCamera(Graphics2D g2d) {
@@ -1175,21 +1250,6 @@ public class TmxParser {
         } catch (Exception e) {
             System.err.println("커스텀 Path 타일 생성 실패: GID " + gid + " - " + e.getMessage());
             return null;
-        }
-    }
-
-    // 9. Path 레이어 전용 헬퍼 메서드들 (TmxParser 클래스에 추가)
-    public void clearPathCustomizations() {
-        pathTileCustomizations.clear();
-        customPathImages.clear();
-        System.out.println("모든 Path 타일 커스터마이징이 초기화되었습니다.");
-    }
-
-    public void removePathCustomization(int gid) {
-        if (pathTileCustomizations.remove(gid) != null) {
-            // 글로벌 캐시에서도 제거하여 다시 로드되도록 함
-            globalTileCache.remove(gid);
-            System.out.println("Path 타일 커스터마이징 제거됨: GID " + gid);
         }
     }
 

@@ -1,4 +1,6 @@
 import MapLoad.TmxParser;
+import MapLoad.TmxParser.PathTileCustomization;
+import MapLoad.TmxParser.PathTileCustomization.RenderMode;
 
 import javax.swing.*;
 
@@ -18,6 +20,8 @@ public class Main {
             System.out.println("모든 맵 이미지 미리 로드 시작...");
             viewer.preloadMultipleTmxFiles(mapPaths);
 
+            setupPathCustomizations(viewer);
+
             // 첫 번째 맵(Farm.tmx) 로드 및 표시
             if (new java.io.File(mapPaths[0]).exists()) {
                 viewer.loadTMX(mapPaths[0]);
@@ -27,7 +31,6 @@ public class Main {
                 viewer.setPlayerStartPosition(67, 15);
 
                 setupMapTransitions(viewer);
-                setupPathCustomizations(viewer);
 
                 // 맵 전환 트리거 설정
                 setupMapTransitions(viewer);
@@ -45,8 +48,9 @@ public class Main {
     private static void setupPathCustomizations(TmxParser viewer) {
         viewer.printPathLayerGids();
 
-
-        viewer.addPathTileCustomization(2113, "resource/TerrainFeatures/grass.png", 0, 14, 20);
+        // ASPECT_FILL 모드로 설정
+        viewer.addPathTileCustomization(87, "resource/TerrainFeatures/grass.png", 0, 14, 20,
+                RenderMode.ASPECT_FILL, true);
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
     }
