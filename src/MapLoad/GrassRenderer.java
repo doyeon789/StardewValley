@@ -52,44 +52,67 @@ public class GrassRenderer {
 
         String tileKey = gid + "_" + tileX + "_" + tileY;
 
-        // 잔디 위치 가져오기 또는 생성
+        // 주변 타일 포함해서 잔디 가져오기
+        List<GrassInstance> surroundingGrass = getSurroundingGrass(tileX, tileY, tileWidth, tileHeight);
+
+        // 현재 타일 잔디 가져오기 또는 생성
         List<GrassInstance> grassInstances = grassPositionCache.get(tileKey);
         if (grassInstances == null) {
-            grassInstances = generateGrassPositions(tileKey, tileWidth, tileHeight, customization);
+            grassInstances = generateGrassPositions(tileKey, tileWidth, tileHeight, customization, surroundingGrass);
             grassPositionCache.put(tileKey, grassInstances);
         }
 
-        // z-order로 정렬
-        grassInstances.sort((g1, g2) -> {
+        // 주변 잔디 포함해서 z-order 정렬
+        List<GrassInstance> allGrass = new ArrayList<>(surroundingGrass);
+        allGrass.addAll(grassInstances);
+        allGrass.sort((g1, g2) -> {
             int centerX = tileWidth / 2;
             int centerY = tileHeight / 2;
 
-            int quadrant1 = getQuadrant(g1.x, g1.y, centerX, centerY);
-            int quadrant2 = getQuadrant(g2.x, g2.y, centerX, centerY);
+            int quadrant1 = getQuadrant(g1.x % tileWidth, g1.y % tileHeight, centerX, centerY);
+            int quadrant2 = getQuadrant(g2.x % tileWidth, g2.y % tileHeight, centerX, centerY);
 
             if (quadrant1 != quadrant2) {
                 return getQuadrantPriority(quadrant1) - getQuadrantPriority(quadrant2);
             }
 
-            if (g1.y != g2.y) {
-                return Integer.compare(g1.y, g2.y);
-            }
+            if (g1.y != g2.y) return Integer.compare(g1.y, g2.y);
             return Integer.compare(g1.x, g2.x);
         });
 
         // 렌더링
         BufferedImage[] preExtractedTiles = preExtractedGrassTiles.get(customization.imagePath);
         if (preExtractedTiles != null) {
-            for (GrassInstance grass : grassInstances) {
-                if (grass.index < preExtractedTiles.length) {
-                    BufferedImage grassTile = preExtractedTiles[grass.index];
-                    if (grassTile != null) {
-                        renderGrassWithAspectFill(g2d, grassTile, screenX + grass.x, screenY + grass.y,
-                                tileWidth, tileHeight, customization);
+            for (GrassInstance grass : allGrass) {
+                int tileBaseX = (grass.x / tileWidth) * tileWidth;
+                int tileBaseY = (grass.y / tileHeight) * tileHeight;
+                BufferedImage grassTile = preExtractedTiles[grass.index];
+                if (grassTile != null) {
+                    renderGrassWithAspectFill(g2d, grassTile,
+                            screenX + (grass.x - tileBaseX),
+                            screenY + (grass.y - tileBaseY),
+                            tileWidth, tileHeight, customization);
+                }
+            }
+        }
+    }
+
+    private List<GrassInstance> getSurroundingGrass(int tileX, int tileY, int tileWidth, int tileHeight) {
+        List<GrassInstance> surrounding = new ArrayList<>();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                if (dx == 0 && dy == 0) continue; // 현재 타일 제외
+                String key = "_tile_" + (tileX + dx) + "_" + (tileY + dy);
+                List<GrassInstance> neighbor = grassPositionCache.get(key);
+                if (neighbor != null) {
+                    // 좌표를 전체 맵 기준으로 변환
+                    for (GrassInstance g : neighbor) {
+                        surrounding.add(new GrassInstance(g.x + dx * tileWidth, g.y + dy * tileHeight, g.index));
                     }
                 }
             }
         }
+        return surrounding;
     }
 
     private void renderGrassWithAspectFill(Graphics2D g2d, BufferedImage grassTile, int drawX, int drawY,
@@ -109,15 +132,13 @@ public class GrassRenderer {
     }
 
     private List<GrassInstance> generateGrassPositions(String tileKey, int tileWidth, int tileHeight,
-                                                       TmxParser.PathTileCustomization customization) {
+                                                       TmxParser.PathTileCustomization customization,
+                                                       List<GrassInstance> surroundingGrass) {
         List<GrassInstance> instances = new ArrayList<>();
         Random random = new Random(tileKey.hashCode());
 
-        // 잔디 개수 늘려서 빈칸 줄이기
-        int grassCount = 4 + random.nextInt(3); // 4~6개
-
-        // 최소 거리 좁게
-        int minDistance = Math.min(tileWidth, tileHeight) / 8;
+        int grassCount = 4 + random.nextInt(3);
+        int minDistance = Math.min(tileWidth, tileHeight) / 4;
 
         for (int i = 0; i < grassCount; i++) {
             int attempts = 0;
@@ -125,22 +146,26 @@ public class GrassRenderer {
             boolean validPosition;
 
             do {
-                // 경계 2~3px 벗어나는 것 허용
-                grassX = random.nextInt(tileWidth + 4) - 2;
-                grassY = random.nextInt(tileHeight + 4) - 2;
+                grassX = random.nextInt(tileWidth + 4) - 4;
+                grassY = random.nextInt(tileHeight + 4) - 4;
 
                 validPosition = true;
                 for (GrassInstance existing : instances) {
-                    double distance = Math.sqrt(Math.pow(grassX - existing.x, 2) + Math.pow(grassY - existing.y, 2));
-                    if (distance < minDistance) {
+                    if (Math.hypot(grassX - existing.x, grassY - existing.y) < minDistance) {
                         validPosition = false;
                         break;
                     }
                 }
-                attempts++;
-            } while (!validPosition && attempts < 20);
+                for (GrassInstance existing : surroundingGrass) {
+                    if (Math.hypot(grassX - existing.x % tileWidth, grassY - existing.y % tileHeight) < minDistance) {
+                        validPosition = false;
+                        break;
+                    }
+                }
 
-            // 타일 인덱스 분포
+                attempts++;
+            } while (!validPosition && attempts < 50);
+
             int randValue = random.nextInt(100);
             int grassIndex = (randValue < 25) ? 0 : (randValue < 65 ? 1 : 2);
 

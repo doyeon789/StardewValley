@@ -582,10 +582,10 @@ public class TmxParser {
     }
 
     private Rectangle calculateVisibleTileBounds(int scaledTileWidth, int scaledTileHeight) {
-        int startTileX = Math.max(0, camera.getX() / scaledTileWidth);
-        int startTileY = Math.max(0, camera.getY() / scaledTileHeight);
-        int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 1);
-        int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 1);
+        int startTileX = Math.max(0, camera.getX() / scaledTileWidth - 1);
+        int startTileY = Math.max(0, camera.getY() / scaledTileHeight - 1);
+        int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 2);
+        int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 2);
 
         return new Rectangle(startTileX, startTileY, endTileX - startTileX + 1, endTileY - startTileY + 1);
     }
