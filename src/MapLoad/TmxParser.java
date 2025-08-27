@@ -11,6 +11,7 @@ import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 
@@ -95,7 +96,8 @@ public class TmxParser {
         int tileWidth;
         int tileHeight;
         RenderMode renderMode;
-        int offsetX, offsetY; // 위치 조정용
+        int offsetX, offsetY;
+        boolean isGrass; // 새로 추가된 필드
 
         public enum RenderMode {
             STRETCH,        // 타일 크기에 맞게 늘리기 (기본)
@@ -105,12 +107,14 @@ public class TmxParser {
             CENTER         // 중앙 정렬
         }
 
-        PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight) {
-            this(imagePath, targetTileIndex, tileWidth, tileHeight, RenderMode.STRETCH, 0, 0);
+        // 기존 생성자들에 isGrass 매개변수 추가
+        PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
+                              RenderMode renderMode, boolean isGrass) {
+            this(imagePath, targetTileIndex, tileWidth, tileHeight, renderMode, 0, 0, isGrass);
         }
 
         PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
-                              RenderMode renderMode, int offsetX, int offsetY) {
+                              RenderMode renderMode, int offsetX, int offsetY, boolean isGrass) {
             this.imagePath = imagePath;
             this.targetTileIndex = targetTileIndex;
             this.tileWidth = tileWidth;
@@ -118,8 +122,20 @@ public class TmxParser {
             this.renderMode = renderMode;
             this.offsetX = offsetX;
             this.offsetY = offsetY;
+            this.isGrass = isGrass;
         }
     }
+
+    private static class GrassInstance {
+        int x, y, index;
+        GrassInstance(int x, int y, int index) {
+            this.x = x;
+            this.y = y;
+            this.index = index;
+        }
+    }
+    private Map<String, List<GrassInstance>> grassPositionCache = new HashMap<>();
+
 
     public Map<Integer, PathTileCustomization> pathTileCustomizations = new HashMap<>();
     private Map<String, BufferedImage> customPathImages = new HashMap<>();
@@ -634,9 +650,9 @@ public class TmxParser {
                         int screenX = camera.worldToScreenX(x * scaledTileWidth);
                         int screenY = camera.worldToScreenY(y * scaledTileHeight);
 
-                        // 커스텀 Path 타일인지 확인
                         if (pathTileCustomizations.containsKey(gid)) {
-                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, gid);
+                            renderCustomPathTile(g2d, tileImage, screenX, screenY,
+                                    scaledTileWidth, scaledTileHeight, gid, x, y);
                         } else {
                             g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
                         }
@@ -668,9 +684,10 @@ public class TmxParser {
                         int screenX = mapOffsetX + x * scaledTileWidth;
                         int screenY = mapOffsetY + y * scaledTileHeight;
 
-                        // 커스텀 Path 타일인지 확인
+                        // 커스텀 Path 타일인지 확인하고 타일 좌표도 전달
                         if (pathTileCustomizations.containsKey(gid)) {
-                            renderCustomPathTile(g2d, tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, gid);
+                            renderCustomPathTile(g2d, tileImage, screenX, screenY,
+                                    scaledTileWidth, scaledTileHeight, gid, x, y);
                         } else {
                             g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
                         }
@@ -681,11 +698,21 @@ public class TmxParser {
     }
 
     private void renderCustomPathTile(Graphics2D g2d, BufferedImage tileImage,
-                                      int screenX, int screenY, int tileWidth, int tileHeight, int gid) {
+                                      int screenX, int screenY, int tileWidth, int tileHeight,
+                                      int gid, int tileX, int tileY) {
         PathTileCustomization customization = pathTileCustomizations.get(gid);
         if (customization == null) {
             g2d.drawImage(tileImage, screenX, screenY, tileWidth, tileHeight, null);
             return;
+        }
+
+        if (customization.isGrass) {
+            BufferedImage sourceImage = customPathImages.get(customization.imagePath);
+            if (sourceImage != null) {
+                renderGrassTile(g2d, sourceImage, screenX, screenY, tileWidth, tileHeight,
+                        gid, tileX, tileY);
+                return;
+            }
         }
 
         int originalWidth = tileImage.getWidth();
@@ -732,8 +759,8 @@ public class TmxParser {
 
             case ORIGINAL_SIZE:
                 // 원본 크기 유지
-                renderWidth = originalWidth*4;
-                renderHeight = originalHeight*4;
+                renderWidth = originalWidth;
+                renderHeight = originalHeight;
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
@@ -754,9 +781,9 @@ public class TmxParser {
                                          PathTileCustomization.RenderMode renderMode,
                                          boolean isGrass) {
         pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex,
-                tileWidth, tileHeight, renderMode, 0, 0));
+                tileWidth, tileHeight, renderMode, 0, 0, isGrass));
         System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath +
-                " [모드: " + renderMode + "]");
+                " [모드: " + renderMode + ", 잔디: " + isGrass + "]");
     }
 
     private void renderPlayerWithCamera(Graphics2D g2d) {
@@ -789,6 +816,97 @@ public class TmxParser {
 
             sprite.setPosition(pixelX, pixelY);
             System.out.println("플레이어 위치 설정: 타일(" + tileX + ", " + tileY + ") -> 픽셀(" + pixelX + ", " + pixelY + ")");
+        }
+    }
+
+    // 잔디 렌더링을 위한 랜덤 시드 캐시
+    private Map<String, Random> grassRandomCache = new HashMap<>();
+
+    // 잔디 타일 렌더링을 위한 특별한 메서드
+    private void renderGrassTile(Graphics2D g2d, BufferedImage sourceImage,
+                                 int screenX, int screenY, int tileWidth, int tileHeight,
+                                 int gid, int tileX, int tileY) {
+
+
+
+
+
+
+
+        PathTileCustomization customization = pathTileCustomizations.get(gid);
+        if (customization == null) return;
+
+        // 각 타일 위치마다 고유한 키 생성
+        String tileKey = gid + "_" + tileX + "_" + tileY;
+
+        // 캐시에서 풀 위치들 가져오기, 없으면 생성
+        List<GrassInstance> grassInstances = grassPositionCache.get(tileKey);
+        if (grassInstances == null) {
+            grassInstances = generateGrassPositions(tileKey, tileWidth, tileHeight, customization);
+            grassPositionCache.put(tileKey, grassInstances);
+        }
+
+        // 저장된 풀들을 렌더링
+        for (GrassInstance grass : grassInstances) {
+            int drawX = screenX + grass.x;
+            int drawY = screenY + grass.y;
+
+            BufferedImage grassTile = extractGrassTileByIndex(sourceImage, grass.index, customization);
+            if (grassTile != null) {
+                g2d.drawImage(grassTile, drawX, drawY,
+                        customization.tileWidth, customization.tileHeight, null);
+            }
+        }
+    }
+
+    private List<GrassInstance> generateGrassPositions(String tileKey, int tileWidth, int tileHeight,
+                                                       PathTileCustomization customization) {
+        List<GrassInstance> instances = new ArrayList<>();
+        Random random = new Random(tileKey.hashCode());
+
+        // 타일을 4등분
+        int quarterWidth = tileWidth / 2;
+        int quarterHeight = tileHeight / 2;
+
+        // 각 사분면에 2-4개의 풀을 랜덤 생성
+        for (int qx = 0; qx < 2; qx++) {
+            for (int qy = 0; qy < 2; qy++) {
+                int grassCount = 2 + random.nextInt(3); // 2-4개 랜덤
+
+                for (int i = 0; i < grassCount; i++) {
+                    // 랜덤 인덱스 선택 (0, 1, 2)
+                    int grassIndex = random.nextInt(3);
+
+                    // 사분면 내 랜덤 위치 생성 (풀 크기 고려)
+                    int maxX = quarterWidth - customization.tileWidth;
+                    int maxY = quarterHeight - customization.tileHeight;
+
+                    if (maxX > 0 && maxY > 0) {
+                        int randomX = (qx * quarterWidth) + random.nextInt(maxX);
+                        int randomY = (qy * quarterHeight) + random.nextInt(maxY);
+
+                        instances.add(new GrassInstance(randomX, randomY, grassIndex));
+                    }
+                }
+            }
+        }
+
+        return instances;
+    }
+
+    // 인덱스로 풀 타일 추출하는 헬퍼 메서드
+    private BufferedImage extractGrassTileByIndex(BufferedImage sourceImage, int index,
+                                                  PathTileCustomization customization) {
+        try {
+            int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
+            int tileX = (index % tilesPerRow) * customization.tileWidth;
+            int tileY = (index / tilesPerRow) * customization.tileHeight;
+
+            return sourceImage.getSubimage(tileX, tileY,
+                    customization.tileWidth, customization.tileHeight);
+        } catch (Exception e) {
+            System.err.println("풀 타일 추출 실패: 인덱스 " + index + " - " + e.getMessage());
+            return null;
         }
     }
 
@@ -1209,11 +1327,6 @@ public class TmxParser {
         }
     }
 
-    public void addPathTileCustomization(int gid, String imagePath, int targetTileIndex, int tileWidth, int tileHeight) {
-        pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex, tileWidth, tileHeight));
-        System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath + " [인덱스: " + targetTileIndex + ", 크기: " + tileWidth + "x" + tileHeight + "]");
-    }
-
     // 4. 커스텀 Path 이미지 로드 메서드 (TmxParser 클래스에 추가)
     private void loadCustomPathImages() {
         for (PathTileCustomization customization : pathTileCustomizations.values()) {
@@ -1250,6 +1363,21 @@ public class TmxParser {
         } catch (Exception e) {
             System.err.println("커스텀 Path 타일 생성 실패: GID " + gid + " - " + e.getMessage());
             return null;
+        }
+    }
+
+    // 9. Path 레이어 전용 헬퍼 메서드들 (TmxParser 클래스에 추가)
+    public void clearPathCustomizations() {
+        pathTileCustomizations.clear();
+        customPathImages.clear();
+        System.out.println("모든 Path 타일 커스터마이징이 초기화되었습니다.");
+    }
+
+    public void removePathCustomization(int gid) {
+        if (pathTileCustomizations.remove(gid) != null) {
+            // 글로벌 캐시에서도 제거하여 다시 로드되도록 함
+            globalTileCache.remove(gid);
+            System.out.println("Path 타일 커스터마이징 제거됨: GID " + gid);
         }
     }
 

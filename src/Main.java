@@ -49,8 +49,10 @@ public class Main {
         viewer.printPathLayerGids();
 
         // ASPECT_FILL 모드로 설정
-        viewer.addPathTileCustomization(87, "resource/TerrainFeatures/grass.png", 0, 14, 20,
-                RenderMode.ASPECT_FILL, true);
+        // 잔디 타일 커스터마이징 추가
+        viewer.addPathTileCustomization(87, "resource/TerrainFeatures/grass.png",
+                0, 14, 20, RenderMode.ASPECT_FILL, true);
+
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
     }
