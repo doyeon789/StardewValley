@@ -5,8 +5,6 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
 import java.io.File;
@@ -14,7 +12,7 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.Timer;
-import  java.util.stream.Collectors;
+import java.util.stream.Collectors;
 
 import Character.SpriteRenderer;
 import Character.Camera;
@@ -87,15 +85,6 @@ public class TmxParser {
         }
     }
 
-    private static class GrassInstance {
-        final int x, y, index;
-        GrassInstance(int x, int y, int index) {
-            this.x = x;
-            this.y = y;
-            this.index = index;
-        }
-    }
-
     private class TileMapCanvas extends JComponent {
         @Override
         protected void paintComponent(Graphics g) {
@@ -115,8 +104,6 @@ public class TmxParser {
     private final Map<Integer, BufferedImage> globalTileCache = new ConcurrentHashMap<>();
     private final Map<Integer, PathTileCustomization> pathTileCustomizations = new HashMap<>();
     private final Map<String, BufferedImage> customPathImages = new HashMap<>();
-    private final Map<String, List<GrassInstance>> grassPositionCache = new HashMap<>();
-    private final Map<String, BufferedImage[]> preExtractedGrassTiles = new HashMap<>();
     private final Set<String> keysPressed = new HashSet<>();
     private final List<MapTransition> mapTransitions = new ArrayList<>();
 
@@ -124,6 +111,7 @@ public class TmxParser {
     private final TileMapCanvas canvas;
     private final SpriteRenderer sprite;
     private final Camera camera;
+    private final GrassRenderer grassRenderer;
 
     private String currentMapPath = "";
     private Layer collisionLayer = null;
@@ -132,6 +120,7 @@ public class TmxParser {
         preloadAllPngImages();
         camera = new Camera(1200, 780);
         sprite = new SpriteRenderer();
+        grassRenderer = new GrassRenderer(customPathImages);
 
         frame = new JFrame("TMX 타일맵 뷰어 (부드러운 이동)");
         frame.setResizable(false);
@@ -181,7 +170,6 @@ public class TmxParser {
         int newY = sprite.getY();
         boolean moved = false;
 
-        // Process movement in all directions
         if (keysPressed.contains("w") && isValidPlayerPosition(newX, newY - MOVE_SPEED)) {
             newY -= MOVE_SPEED;
             moved = true;
@@ -243,7 +231,6 @@ public class TmxParser {
 
     private void preloadAllPngImages() {
         preloadedImages.clear();
-
         File resourceDir = findResourceDirectory();
         if (resourceDir == null) return;
 
@@ -251,7 +238,6 @@ public class TmxParser {
 
         List<File> pngFiles = new ArrayList<>();
         collectPngFiles(resourceDir, pngFiles);
-
         pngFiles.parallelStream().forEach(this::loadPngFile);
 
         System.out.println("총 " + pngFiles.size() + "개의 PNG 파일이 resource 디렉토리에서 로드되었습니다.");
@@ -320,32 +306,18 @@ public class TmxParser {
         return null;
     }
 
-    private String normalizeLayerName(String layerName) {
-        if (layerName == null) return "UNKNOWN";
-        return layerName.toUpperCase().replaceAll("\\d+$", "");
-    }
-
-    private int getLayerRenderOrder(String normalizedLayerName) {
-        return LAYER_ORDER.getOrDefault(normalizedLayerName, 999);
-    }
-
     public boolean loadTMX(String tmxPath) {
         try {
-            // Clear existing data
             clearExistingData();
 
             File tmxFile = new File(tmxPath);
             Document doc = parseXmlDocument(tmxFile);
 
-            // Parse map properties
             Element mapElement = doc.getDocumentElement();
             parseMapProperties(mapElement);
-
-            // Parse tilesets and layers
             parseTilesets(doc);
             parseLayers(doc);
 
-            // Setup caches and systems
             buildTilesetCache();
             preloadTileImages();
             setupCollisionLayer();
@@ -372,6 +344,7 @@ public class TmxParser {
         layers.clear();
         gidToTilesetCache.clear();
         globalTileCache.clear();
+        grassRenderer.clearCache();
     }
 
     private Document parseXmlDocument(File tmxFile) throws Exception {
@@ -416,7 +389,6 @@ public class TmxParser {
         tileset.tileCount = Integer.parseInt(tilesetElement.getAttribute("tilecount"));
         tileset.columns = Integer.parseInt(tilesetElement.getAttribute("columns"));
 
-        // Parse image path
         NodeList imageNodes = tilesetElement.getElementsByTagName("image");
         if (imageNodes.getLength() > 0) {
             Element imageElement = (Element) imageNodes.item(0);
@@ -439,13 +411,11 @@ public class TmxParser {
             Element layerElement = (Element) layerNodes.item(i);
             Layer layer = createLayer(layerElement);
             layers.add(layer);
-            System.out.println("레이어 추가됨: " + layer.name + " -> " + layer.layerType +
-                    " (순서: " + layer.renderOrder + ", " + layer.width + "x" + layer.height + ")");
+            System.out.println("레이어 추가됨: " + layer.name + " -> " + layer.layerType);
         }
 
-        // Sort layers by render order
         layers.sort(Comparator.comparingInt(layer -> layer.renderOrder));
-        System.out.println("레이어 정렬 완료 (렌더링 순서: Back -> Buildings -> Paths -> Front -> AlwaysFront)");
+        System.out.println("레이어 정렬 완료");
     }
 
     private Layer createLayer(Element layerElement) {
@@ -456,13 +426,11 @@ public class TmxParser {
         layer.width = Integer.parseInt(layerElement.getAttribute("width"));
         layer.height = Integer.parseInt(layerElement.getAttribute("height"));
 
-        // Check opacity
         String opacity = layerElement.getAttribute("opacity");
         if (!opacity.isEmpty() && Float.parseFloat(opacity) == 0.0f) {
             layer.visible = false;
         }
 
-        // Parse data (CSV format)
         NodeList dataNodes = layerElement.getElementsByTagName("data");
         if (dataNodes.getLength() > 0) {
             Element dataElement = (Element) dataNodes.item(0);
@@ -485,6 +453,15 @@ public class TmxParser {
         }
     }
 
+    private String normalizeLayerName(String layerName) {
+        if (layerName == null) return "UNKNOWN";
+        return layerName.toUpperCase().replaceAll("\\d+$", "");
+    }
+
+    private int getLayerRenderOrder(String normalizedLayerName) {
+        return LAYER_ORDER.getOrDefault(normalizedLayerName, 999);
+    }
+
     private void buildTilesetCache() {
         for (Tileset tileset : tilesets) {
             for (int i = 0; i < tileset.tileCount; i++) {
@@ -498,10 +475,8 @@ public class TmxParser {
     private void preloadTileImages() {
         new Thread(() -> {
             System.out.println("타일 이미지 캐싱 시작...");
-
             loadCustomPathImages();
             int cachedCount = cacheAllVisibleTiles();
-
             System.out.println("타일 이미지 캐싱 완료: " + cachedCount + " tiles");
             SwingUtilities.invokeLater(canvas::repaint);
         }).start();
@@ -535,7 +510,6 @@ public class TmxParser {
     private BufferedImage createTileImage(int gid) {
         if (gid == 0) return null;
 
-        // Check for custom path tiles
         if (pathTileCustomizations.containsKey(gid)) {
             BufferedImage customTile = createCustomPathTileImage(gid);
             if (customTile != null) return customTile;
@@ -567,7 +541,6 @@ public class TmxParser {
 
     private BufferedImage getTileImage(int gid) {
         if (gid == 0) return null;
-
         BufferedImage cachedImage = globalTileCache.get(gid);
         return cachedImage != null ? cachedImage : createTileImage(gid);
     }
@@ -601,10 +574,8 @@ public class TmxParser {
         int scaledTileWidth = tileWidth * TILE_SCALE;
         int scaledTileHeight = tileHeight * TILE_SCALE;
 
-        // Calculate visible tile bounds
         Rectangle visibleBounds = calculateVisibleTileBounds(scaledTileWidth, scaledTileHeight);
 
-        // Render back layers, player, then front layers
         renderLayersWithCamera(g2d, visibleBounds, scaledTileWidth, scaledTileHeight, false);
         renderPlayerWithCamera(g2d);
         renderLayersWithCamera(g2d, visibleBounds, scaledTileWidth, scaledTileHeight, true);
@@ -695,11 +666,8 @@ public class TmxParser {
         }
 
         if (customization.isGrass) {
-            BufferedImage sourceImage = customPathImages.get(customization.imagePath);
-            if (sourceImage != null) {
-                renderGrassTile(g2d, sourceImage, screenX, screenY, tileWidth, tileHeight, gid, tileX, tileY);
-                return;
-            }
+            grassRenderer.renderGrassTile(g2d, screenX, screenY, tileWidth, tileHeight, gid, tileX, tileY, customization);
+            return;
         }
 
         renderCustomTileWithMode(g2d, tileImage, screenX, screenY, tileWidth, tileHeight, customization);
@@ -796,66 +764,6 @@ public class TmxParser {
 
         sprite.setPosition(pixelX, pixelY);
         System.out.println("플레이어 위치 설정: 타일(" + tileX + ", " + tileY + ") -> 픽셀(" + pixelX + ", " + pixelY + ")");
-    }
-
-    private void renderGrassTile(Graphics2D g2d, BufferedImage sourceImage,
-                                 int screenX, int screenY, int tileWidth, int tileHeight,
-                                 int gid, int tileX, int tileY) {
-        PathTileCustomization customization = pathTileCustomizations.get(gid);
-        if (customization == null) return;
-
-        String tileKey = gid + "_" + tileX + "_" + tileY;
-
-        // Get or generate grass positions
-        List<GrassInstance> grassInstances = grassPositionCache.computeIfAbsent(tileKey,
-                k -> generateGrassPositions(k, tileWidth, tileHeight, customization));
-
-        // Render stored grass instances
-        BufferedImage[] preExtractedTiles = preExtractedGrassTiles.get(customization.imagePath);
-        if (preExtractedTiles != null) {
-            for (GrassInstance grass : grassInstances) {
-                if (grass.index < preExtractedTiles.length) {
-                    BufferedImage grassTile = preExtractedTiles[grass.index];
-                    if (grassTile != null) {
-                        int drawX = screenX + grass.x;
-                        int drawY = screenY + grass.y;
-                        g2d.drawImage(grassTile, drawX, drawY,
-                                customization.tileWidth, customization.tileHeight, null);
-                    }
-                }
-            }
-        }
-    }
-
-    private List<GrassInstance> generateGrassPositions(String tileKey, int tileWidth, int tileHeight,
-                                                       PathTileCustomization customization) {
-        List<GrassInstance> instances = new ArrayList<>();
-        Random random = new Random(tileKey.hashCode());
-
-        int quarterWidth = tileWidth / 2;
-        int quarterHeight = tileHeight / 2;
-
-        // Generate 2-4 grass instances in each quadrant
-        for (int qx = 0; qx < 2; qx++) {
-            for (int qy = 0; qy < 2; qy++) {
-                int grassCount = 2 + random.nextInt(3);
-
-                for (int i = 0; i < grassCount; i++) {
-                    int grassIndex = random.nextInt(3);
-
-                    int maxX = quarterWidth - customization.tileWidth;
-                    int maxY = quarterHeight - customization.tileHeight;
-
-                    if (maxX > 0 && maxY > 0) {
-                        int randomX = (qx * quarterWidth) + random.nextInt(maxX);
-                        int randomY = (qy * quarterHeight) + random.nextInt(maxY);
-                        instances.add(new GrassInstance(randomX, randomY, grassIndex));
-                    }
-                }
-            }
-        }
-
-        return instances;
     }
 
     private void renderUI(Graphics2D g2d) {
@@ -960,15 +868,12 @@ public class TmxParser {
     }
 
     private void renderPanel(Graphics2D g2d, int x, int y, int width, int height, Runnable contentRenderer) {
-        // Panel background
         g2d.setColor(new Color(0, 0, 0, 150));
         g2d.fillRect(x, y, width, height);
 
-        // Panel border
         g2d.setColor(new Color(100, 100, 100));
         g2d.drawRect(x, y, width, height);
 
-        // Render content
         contentRenderer.run();
     }
 
@@ -979,9 +884,9 @@ public class TmxParser {
                 .orElse(null);
 
         if (collisionLayer != null) {
-            System.out.println("충돌 레이어 설정됨: " + collisionLayer.name + " (" + collisionLayer.layerType + ")");
+            System.out.println("충돌 레이어 설정됨: " + collisionLayer.name);
         } else {
-            System.out.println("충돌 레이어를 찾을 수 없습니다. 모든 이동이 허용됩니다.");
+            System.out.println("충돌 레이어를 찾을 수 없습니다.");
         }
     }
 
@@ -1016,14 +921,13 @@ public class TmxParser {
         int playerWidth = sprite.getWidth();
         int playerHeight = sprite.getHeight();
 
-        // Player hitbox (focused on feet area)
-        int[] hitboxOffsets = {4, playerWidth - 4, playerHeight - 23, playerHeight - 1}; // left, right, top, bottom
+        int[] hitboxOffsets = {4, playerWidth - 4, playerHeight - 23, playerHeight - 1};
 
         int[][] corners = {
-                {newX + hitboxOffsets[0], newY + hitboxOffsets[3]}, // bottom-left
-                {newX + hitboxOffsets[1], newY + hitboxOffsets[3]}, // bottom-right
-                {newX + hitboxOffsets[0], newY + hitboxOffsets[2]}, // top-left
-                {newX + hitboxOffsets[1], newY + hitboxOffsets[2]}  // top-right
+                {newX + hitboxOffsets[0], newY + hitboxOffsets[3]},
+                {newX + hitboxOffsets[1], newY + hitboxOffsets[3]},
+                {newX + hitboxOffsets[0], newY + hitboxOffsets[2]},
+                {newX + hitboxOffsets[1], newY + hitboxOffsets[2]}
         };
 
         return Arrays.stream(corners).noneMatch(corner -> isPixelBlocked(corner[0], corner[1]));
@@ -1061,8 +965,7 @@ public class TmxParser {
             String mapName = extractMapName(targetMapPath);
             frame.setTitle("TMX 타일맵 뷰어 - " + mapName);
 
-            System.out.println("맵 전환 완료: " + mapName +
-                    " 위치(" + destinationTileX + "," + destinationTileY + ")");
+            System.out.println("맵 전환 완료: " + mapName);
 
             SwingUtilities.invokeLater(() -> {
                 canvas.revalidate();
@@ -1073,110 +976,6 @@ public class TmxParser {
         }
     }
 
-    // Multiple TMX file preloading
-    public void preloadMultipleTmxFiles(String[] tmxPaths) {
-        System.out.println("=== 다중 TMX 파일 미리 로드 시작 ===");
-
-        Arrays.stream(tmxPaths)
-                .filter(tmxPath -> new File(tmxPath).exists())
-                .forEach(this::preloadTmxData);
-
-        System.out.println("=== 다중 TMX 파일 미리 로드 완료 ===");
-        System.out.println("총 캐시된 타일 이미지: " + globalTileCache.size());
-    }
-
-    private void preloadTmxData(String tmxPath) {
-        try {
-            System.out.println("미리 로드 중: " + tmxPath);
-
-            Document doc = parseXmlDocument(new File(tmxPath));
-            Element mapElement = doc.getDocumentElement();
-
-            List<Tileset> tempTilesets = parseTilesetsFromDocument(doc);
-            List<Layer> tempLayers = parseLayersFromDocument(doc);
-
-            cacheTilesFromLayers(tempTilesets, tempLayers);
-
-            System.out.println("  완료: " + extractMapName(tmxPath) + " (" + tempTilesets.size() +
-                    " tilesets, " + tempLayers.size() + " layers)");
-
-        } catch (Exception e) {
-            System.err.println("TMX 미리 로드 실패: " + tmxPath + " - " + e.getMessage());
-        }
-    }
-
-    private List<Tileset> parseTilesetsFromDocument(Document doc) {
-        List<Tileset> tempTilesets = new ArrayList<>();
-        NodeList tilesetNodes = doc.getElementsByTagName("tileset");
-
-        for (int i = 0; i < tilesetNodes.getLength(); i++) {
-            Element tilesetElement = (Element) tilesetNodes.item(i);
-            tempTilesets.add(createTileset(tilesetElement));
-        }
-
-        return tempTilesets;
-    }
-
-    private List<Layer> parseLayersFromDocument(Document doc) {
-        List<Layer> tempLayers = new ArrayList<>();
-        NodeList layerNodes = doc.getElementsByTagName("layer");
-
-        for (int i = 0; i < layerNodes.getLength(); i++) {
-            Element layerElement = (Element) layerNodes.item(i);
-            tempLayers.add(createLayer(layerElement));
-        }
-
-        return tempLayers;
-    }
-
-    private void cacheTilesFromLayers(List<Tileset> tempTilesets, List<Layer> tempLayers) {
-        Map<Integer, Tileset> tempGidToTilesetCache = buildTempTilesetCache(tempTilesets);
-
-        Set<Integer> uniqueGids = tempLayers.stream()
-                .filter(layer -> layer.visible)
-                .flatMap(layer -> Arrays.stream(layer.data).boxed())
-                .filter(gid -> gid > 0)
-                .collect(HashSet::new, Set::add, Set::addAll);
-
-        int cachedCount = (int) uniqueGids.stream()
-                .filter(gid -> !globalTileCache.containsKey(gid))
-                .mapToLong(gid -> {
-                    BufferedImage tileImage = createTileImageFromTilesets(gid, tempGidToTilesetCache);
-                    if (tileImage != null) {
-                        globalTileCache.put(gid, tileImage);
-                        return 1;
-                    }
-                    return 0;
-                })
-                .sum();
-
-        System.out.println("    새로 캐시된 타일: " + cachedCount + "개");
-    }
-
-    private Map<Integer, Tileset> buildTempTilesetCache(List<Tileset> tempTilesets) {
-        Map<Integer, Tileset> cache = new HashMap<>();
-        for (Tileset tileset : tempTilesets) {
-            for (int i = 0; i < tileset.tileCount; i++) {
-                cache.put(tileset.firstGid + i, tileset);
-            }
-        }
-        return cache;
-    }
-
-    private BufferedImage createTileImageFromTilesets(int gid, Map<Integer, Tileset> tempGidToTilesetCache) {
-        if (gid == 0) return null;
-
-        if (pathTileCustomizations.containsKey(gid)) {
-            BufferedImage customTile = createCustomPathTileImage(gid);
-            if (customTile != null) return customTile;
-        }
-
-        Tileset tileset = tempGidToTilesetCache.get(gid);
-        if (tileset == null || tileset.image == null) return null;
-
-        return extractTileFromTileset(tileset, gid);
-    }
-
     private void loadCustomPathImages() {
         pathTileCustomizations.values().forEach(customization -> {
             if (!customPathImages.containsKey(customization.imagePath)) {
@@ -1185,26 +984,11 @@ public class TmxParser {
                     customPathImages.put(customization.imagePath, image);
 
                     if (customization.isGrass) {
-                        BufferedImage[] grassTiles = extractAllGrassTiles(image, customization);
-                        preExtractedGrassTiles.put(customization.imagePath, grassTiles);
+                        grassRenderer.preExtractGrassTiles(customization.imagePath, customization);
                     }
                 }
             }
         });
-    }
-
-    private BufferedImage[] extractAllGrassTiles(BufferedImage sourceImage, PathTileCustomization customization) {
-        int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
-        int totalTiles = (sourceImage.getHeight() / customization.tileHeight) * tilesPerRow;
-        BufferedImage[] tiles = new BufferedImage[Math.min(totalTiles, 3)];
-
-        for (int i = 0; i < tiles.length; i++) {
-            int tileX = (i % tilesPerRow) * customization.tileWidth;
-            int tileY = (i / tilesPerRow) * customization.tileHeight;
-            tiles[i] = sourceImage.getSubimage(tileX, tileY, customization.tileWidth, customization.tileHeight);
-        }
-
-        return tiles;
     }
 
     private BufferedImage createCustomPathTileImage(int gid) {
@@ -1220,7 +1004,7 @@ public class TmxParser {
             int tileY = (customization.targetTileIndex / tilesPerRow) * customization.tileHeight;
 
             BufferedImage customTile = sourceImage.getSubimage(tileX, tileY, customization.tileWidth, customization.tileHeight);
-            System.out.println("커스텀 Path 타일 생성됨: GID " + gid + " -> 인덱스 " + customization.targetTileIndex + " (" + tileX + ", " + tileY + ")");
+            System.out.println("커스텀 Path 타일 생성됨: GID " + gid);
             return customTile;
 
         } catch (Exception e) {
@@ -1257,7 +1041,7 @@ public class TmxParser {
                 .orElse(0);
     }
 
-    // Getters
+    // Getters and utility methods
     public void setCurrentMapPath(String mapPath) { this.currentMapPath = mapPath; }
 
     public String extractMapName(String filePath) {

@@ -17,9 +17,6 @@ public class Main {
                     "resource/FarmHouse.tmx",
             };
 
-            System.out.println("모든 맵 이미지 미리 로드 시작...");
-            viewer.preloadMultipleTmxFiles(mapPaths);
-
             setupPathCustomizations(viewer);
 
             // 첫 번째 맵(Farm.tmx) 로드 및 표시
@@ -48,10 +45,8 @@ public class Main {
     private static void setupPathCustomizations(TmxParser viewer) {
         viewer.printPathLayerGids();
 
-        // ASPECT_FILL 모드로 설정
-        // 잔디 타일 커스터마이징 추가
         viewer.addPathTileCustomization(87, "resource/TerrainFeatures/grass.png",
-                0, 14, 20, RenderMode.ASPECT_FILL, true);
+                0, 15, 20, RenderMode.ASPECT_FILL, true);
 
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
