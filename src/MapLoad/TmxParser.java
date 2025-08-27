@@ -62,6 +62,7 @@ public class TmxParser {
     public static class PathTileCustomization {
         final String imagePath;
         final int targetTileIndex, tileWidth, tileHeight, offsetX, offsetY;
+        final int startY; // 새로 추가: 이미지에서 자르기 시작할 Y 좌표
         final RenderMode renderMode;
         final boolean isGrass;
 
@@ -69,11 +70,17 @@ public class TmxParser {
 
         PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
                               RenderMode renderMode, boolean isGrass) {
-            this(imagePath, targetTileIndex, tileWidth, tileHeight, renderMode, 0, 0, isGrass);
+            this(imagePath, targetTileIndex, tileWidth, tileHeight, renderMode, 0, 0, 0, isGrass);
         }
 
         PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
                               RenderMode renderMode, int offsetX, int offsetY, boolean isGrass) {
+            this(imagePath, targetTileIndex, tileWidth, tileHeight, renderMode, offsetX, offsetY, 0, isGrass);
+        }
+
+        // 새로운 생성자 (startY 지원)
+        PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
+                              RenderMode renderMode, int offsetX, int offsetY, int startY, boolean isGrass) {
             this.imagePath = imagePath;
             this.targetTileIndex = targetTileIndex;
             this.tileWidth = tileWidth;
@@ -81,6 +88,7 @@ public class TmxParser {
             this.renderMode = renderMode;
             this.offsetX = offsetX;
             this.offsetY = offsetY;
+            this.startY = startY;
             this.isGrass = isGrass;
         }
     }
@@ -670,12 +678,12 @@ public class TmxParser {
             return;
         }
 
-        renderCustomTileWithMode(g2d, tileImage, screenX, screenY, tileWidth, tileHeight, customization);
+        renderCustomTileWithMode(g2d, tileImage, screenX, screenY, tileWidth, tileHeight, customization, gid);
     }
 
     private void renderCustomTileWithMode(Graphics2D g2d, BufferedImage tileImage,
                                           int screenX, int screenY, int tileWidth, int tileHeight,
-                                          PathTileCustomization customization) {
+                                          PathTileCustomization customization, int gid) {
         int originalWidth = tileImage.getWidth();
         int originalHeight = tileImage.getHeight();
 
@@ -710,8 +718,15 @@ public class TmxParser {
             case ORIGINAL_SIZE:
                 renderWidth = customization.tileWidth * TILE_SCALE;
                 renderHeight = customization.tileHeight * TILE_SCALE;
-                renderX = screenX + customization.offsetX;
-                renderY = screenY + tileHeight - renderHeight + customization.offsetY;
+                if(gid == 85 || gid == 86){ // 나무, 돌
+                    renderX = screenX + customization.offsetX;
+                    renderY = screenY + customization.offsetY;
+                }
+                else {
+                    renderX = screenX + customization.offsetX;
+                    renderY = screenY + tileHeight - renderHeight + customization.offsetY;
+                }
+
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
@@ -728,12 +743,23 @@ public class TmxParser {
     public void addPathTileCustomization(int gid, String imagePath, int targetTileIndex,
                                          int tileWidth, int tileHeight,
                                          PathTileCustomization.RenderMode renderMode,
-                                         boolean isGrass) {
+                                         int offsetX, int offsetY, boolean isGrass) {
         pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex,
-                tileWidth, tileHeight, renderMode, 0, 0, isGrass));
+                tileWidth, tileHeight, renderMode, offsetX, offsetY, 0, isGrass));
         System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath +
-                " [모드: " + renderMode + ", 잔디: " + isGrass + "]");
+                " [모드: " + renderMode + ", 오프셋: (" + offsetX + "," + offsetY + "), 잔디: " + isGrass + "]");
     }
+
+    public void addPathTileCustomization(int gid, String imagePath, int targetTileIndex,
+                                         int tileWidth, int tileHeight,
+                                         PathTileCustomization.RenderMode renderMode,
+                                         int offsetX, int offsetY, int startY, boolean isGrass) {
+        pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex,
+                tileWidth, tileHeight, renderMode, offsetX, offsetY, startY, isGrass));
+        System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath +
+                " [모드: " + renderMode + ", 오프셋: (" + offsetX + "," + offsetY + "), 시작Y: " + startY + ", 잔디: " + isGrass + "]");
+    }
+
 
     private void renderPlayerWithCamera(Graphics2D g2d) {
         int playerScreenX = camera.worldToScreenX(sprite.getX());
@@ -1003,10 +1029,10 @@ public class TmxParser {
         try {
             int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
             int tileX = (customization.targetTileIndex % tilesPerRow) * customization.tileWidth;
-            int tileY = (customization.targetTileIndex / tilesPerRow) * customization.tileHeight;
+            int tileY = (customization.targetTileIndex / tilesPerRow) * customization.tileHeight + customization.startY;
 
             BufferedImage customTile = sourceImage.getSubimage(tileX, tileY, customization.tileWidth, customization.tileHeight);
-            System.out.println("커스텀 Path 타일 생성됨: GID " + gid);
+            System.out.println("커스텀 Path 타일 생성됨: GID " + gid + " (startY: " + customization.startY + ")");
             return customTile;
 
         } catch (Exception e) {
