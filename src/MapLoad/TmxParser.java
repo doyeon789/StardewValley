@@ -10,76 +10,47 @@ import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.swing.Timer;
+import  java.util.stream.Collectors;
 
 import Character.SpriteRenderer;
 import Character.Camera;
 
 public class TmxParser {
-
-    // 레이어 렌더링 순서 정의 (낮은 숫자가 먼저 렌더링)
-    private static final Map<String, Integer> LAYER_ORDER = new HashMap<String, Integer>() {{
-        put("Back", 0);
-        put("Buildings", 1);
-        put("Paths", 2);
-        put("Front", 3);
-        put("AlwaysFront", 4);
-    }};
-
-    static class Tileset {
-        int firstGid;
-        String name;
-        int tileWidth, tileHeight, tileCount, columns;
-        String imagePath;
-        BufferedImage image;
-        Map<Integer, BufferedImage> tileCache = new HashMap<>();
-    }
-
-    static class Layer {
-        String name;
-        String layerType; // 정규화된 레이어 타입 (BACK, BUILDINGS, 등)
-        int renderOrder;  // 렌더링 순서
-        int width, height;
-        int[] data;
-        boolean visible = true;
-    }
-
-    private class TileMapCanvas extends JComponent {
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            renderTileMapWithCamera(g);
-        }
-    }
-
-    private int mapWidth, mapHeight, tileWidth, tileHeight;
-    private final List<Tileset> tilesets = new ArrayList<>();
-    private final List<Layer> layers = new ArrayList<>();
-    private final Map<String, BufferedImage> preloadedImages = new HashMap<>();
-    private final Map<Integer, Tileset> gidToTilesetCache = new HashMap<>();
-    private final Map<Integer, BufferedImage> globalTileCache = new HashMap<>();
-
-    private final JFrame frame;
-    private final TileMapCanvas canvas;
-    private final SpriteRenderer sprite;
-    private final Camera camera;
+    // Constants
+    private static final Map<String, Integer> LAYER_ORDER = Map.of(
+            "BACK", 0,
+            "BUILDINGS", 1,
+            "PATHS", 2,
+            "FRONT", 3,
+            "ALWAYSFRONT", 4
+    );
 
     private static final int TILE_SCALE = 3;
     private static final int GAME_FPS = 60;
     private static final int MOVE_SPEED = 5;
 
-    private final Set<String> keysPressed = new HashSet<>();
-    private int mapOffsetX = 0, mapOffsetY = 0;
-    private Map<Integer, BufferedImage> tileOverrides = new HashMap<>();
+    // Inner Classes
+    static class Tileset {
+        int firstGid, tileWidth, tileHeight, tileCount, columns;
+        String name, imagePath;
+        BufferedImage image;
+        final Map<Integer, BufferedImage> tileCache = new HashMap<>();
+    }
 
-    // 맵 전환 시스템
+    static class Layer {
+        String name, layerType;
+        int renderOrder, width, height;
+        int[] data;
+        boolean visible = true;
+    }
+
     private static class MapTransition {
-        String targetMapPath;
-        int triggerTileX, triggerTileY;
-        int destinationTileX, destinationTileY;
+        final String targetMapPath;
+        final int triggerTileX, triggerTileY, destinationTileX, destinationTileY;
 
         MapTransition(String targetMapPath, int triggerX, int triggerY, int destX, int destY) {
             this.targetMapPath = targetMapPath;
@@ -91,23 +62,13 @@ public class TmxParser {
     }
 
     public static class PathTileCustomization {
-        String imagePath;
-        int targetTileIndex;
-        int tileWidth;
-        int tileHeight;
-        RenderMode renderMode;
-        int offsetX, offsetY;
-        boolean isGrass; // 새로 추가된 필드
+        final String imagePath;
+        final int targetTileIndex, tileWidth, tileHeight, offsetX, offsetY;
+        final RenderMode renderMode;
+        final boolean isGrass;
 
-        public enum RenderMode {
-            STRETCH,        // 타일 크기에 맞게 늘리기 (기본)
-            ASPECT_FIT,     // 비율 유지하며 타일 안에 맞추기
-            ASPECT_FILL,    // 비율 유지하며 타일을 채우기
-            ORIGINAL_SIZE,  // 원본 크기 유지
-            CENTER         // 중앙 정렬
-        }
+        public enum RenderMode { STRETCH, ASPECT_FIT, ASPECT_FILL, ORIGINAL_SIZE, CENTER }
 
-        // 기존 생성자들에 isGrass 매개변수 추가
         PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
                               RenderMode renderMode, boolean isGrass) {
             this(imagePath, targetTileIndex, tileWidth, tileHeight, renderMode, 0, 0, isGrass);
@@ -127,23 +88,44 @@ public class TmxParser {
     }
 
     private static class GrassInstance {
-        int x, y, index;
+        final int x, y, index;
         GrassInstance(int x, int y, int index) {
             this.x = x;
             this.y = y;
             this.index = index;
         }
     }
-    private Map<String, List<GrassInstance>> grassPositionCache = new HashMap<>();
 
+    private class TileMapCanvas extends JComponent {
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            renderTileMapWithCamera(g);
+        }
+    }
 
-    public Map<Integer, PathTileCustomization> pathTileCustomizations = new HashMap<>();
-    private Map<String, BufferedImage> customPathImages = new HashMap<>();
+    // Fields
+    private int mapWidth, mapHeight, tileWidth, tileHeight;
+    private int mapOffsetX = 0, mapOffsetY = 0;
+
+    private final List<Tileset> tilesets = new ArrayList<>();
+    private final List<Layer> layers = new ArrayList<>();
+    private final Map<String, BufferedImage> preloadedImages = new ConcurrentHashMap<>();
+    private final Map<Integer, Tileset> gidToTilesetCache = new HashMap<>();
+    private final Map<Integer, BufferedImage> globalTileCache = new ConcurrentHashMap<>();
+    private final Map<Integer, PathTileCustomization> pathTileCustomizations = new HashMap<>();
+    private final Map<String, BufferedImage> customPathImages = new HashMap<>();
+    private final Map<String, List<GrassInstance>> grassPositionCache = new HashMap<>();
+    private final Map<String, BufferedImage[]> preExtractedGrassTiles = new HashMap<>();
+    private final Set<String> keysPressed = new HashSet<>();
+    private final List<MapTransition> mapTransitions = new ArrayList<>();
+
+    private final JFrame frame;
+    private final TileMapCanvas canvas;
+    private final SpriteRenderer sprite;
+    private final Camera camera;
 
     private String currentMapPath = "";
-    private List<MapTransition> mapTransitions = new ArrayList<>();
-
-    // 충돌 검사 시스템
     private Layer collisionLayer = null;
 
     public TmxParser() {
@@ -161,7 +143,12 @@ public class TmxParser {
         canvas.setOpaque(true);
         canvas.setFocusable(true);
 
-        // 키 입력 처리
+        setupKeyListener();
+        frame.add(canvas);
+        startGameLoop();
+    }
+
+    private void setupKeyListener() {
         canvas.addKeyListener(new java.awt.event.KeyAdapter() {
             @Override
             public void keyPressed(java.awt.event.KeyEvent e) {
@@ -177,18 +164,12 @@ public class TmxParser {
                 sprite.handleKeyReleased(key);
             }
         });
-
-        frame.add(canvas);
-        startGameLoop();
     }
 
     private void startGameLoop() {
-        javax.swing.Timer gameTimer = new javax.swing.Timer(1000 / GAME_FPS, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                updateMovement();
-                canvas.repaint();
-            }
+        Timer gameTimer = new Timer(1000 / GAME_FPS, e -> {
+            updateMovement();
+            canvas.repaint();
         });
         gameTimer.start();
     }
@@ -200,48 +181,41 @@ public class TmxParser {
         int newY = sprite.getY();
         boolean moved = false;
 
-        if (keysPressed.contains("w")) {
-            int testY = newY - MOVE_SPEED;
-            if (isValidPlayerPosition(newX, testY)) {
-                newY = testY;
-                moved = true;
-            }
+        // Process movement in all directions
+        if (keysPressed.contains("w") && isValidPlayerPosition(newX, newY - MOVE_SPEED)) {
+            newY -= MOVE_SPEED;
+            moved = true;
         }
-        if (keysPressed.contains("s")) {
-            int testY = newY + MOVE_SPEED;
-            if (isValidPlayerPosition(newX, testY)) {
-                newY = testY;
-                moved = true;
-            }
+        if (keysPressed.contains("s") && isValidPlayerPosition(newX, newY + MOVE_SPEED)) {
+            newY += MOVE_SPEED;
+            moved = true;
         }
-        if (keysPressed.contains("a")) {
-            int testX = newX - MOVE_SPEED;
-            if (isValidPlayerPosition(testX, newY)) {
-                newX = testX;
-                moved = true;
-            }
+        if (keysPressed.contains("a") && isValidPlayerPosition(newX - MOVE_SPEED, newY)) {
+            newX -= MOVE_SPEED;
+            moved = true;
         }
-        if (keysPressed.contains("d")) {
-            int testX = newX + MOVE_SPEED;
-            if (isValidPlayerPosition(testX, newY)) {
-                newX = testX;
-                moved = true;
-            }
+        if (keysPressed.contains("d") && isValidPlayerPosition(newX + MOVE_SPEED, newY)) {
+            newX += MOVE_SPEED;
+            moved = true;
         }
 
         if (moved) {
-            int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
-            int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+            validateAndSetPlayerPosition(newX, newY);
+        }
+    }
 
-            int minX = mapOffsetX;
-            int minY = mapOffsetY;
-            int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
-            int maxY = mapOffsetY + mapPixelHeight - sprite.getHeight();
+    private void validateAndSetPlayerPosition(int newX, int newY) {
+        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
-            if (newX >= minX && newX <= maxX && newY >= minY && newY <= maxY) {
-                sprite.setPosition(newX, newY);
-                checkMapTransition(newX, newY);
-            }
+        int minX = mapOffsetX;
+        int minY = mapOffsetY;
+        int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
+        int maxY = mapOffsetY + mapPixelHeight - sprite.getHeight();
+
+        if (newX >= minX && newX <= maxX && newY >= minY && newY <= maxY) {
+            sprite.setPosition(newX, newY);
+            checkMapTransition(newX, newY);
         }
     }
 
@@ -249,17 +223,8 @@ public class TmxParser {
         int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
         int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
-        if (mapPixelWidth < canvas.getWidth()) {
-            mapOffsetX = (canvas.getWidth() - mapPixelWidth) / 2;
-        } else {
-            mapOffsetX = 0;
-        }
-
-        if (mapPixelHeight < canvas.getHeight()) {
-            mapOffsetY = (canvas.getHeight() - mapPixelHeight) / 2;
-        } else {
-            mapOffsetY = 0;
-        }
+        mapOffsetX = mapPixelWidth < canvas.getWidth() ? (canvas.getWidth() - mapPixelWidth) / 2 : 0;
+        mapOffsetY = mapPixelHeight < canvas.getHeight() ? (canvas.getHeight() - mapPixelHeight) / 2 : 0;
     }
 
     public void show() {
@@ -279,37 +244,34 @@ public class TmxParser {
     private void preloadAllPngImages() {
         preloadedImages.clear();
 
-        File resourceDir = new File("resource");
-        if (!resourceDir.exists() || !resourceDir.isDirectory()) {
-            File projectRoot = new File(System.getProperty("user.dir"));
-            resourceDir = new File(projectRoot, "resource");
-
-            if (!resourceDir.exists() || !resourceDir.isDirectory()) {
-                System.err.println("resource 디렉토리를 찾을 수 없습니다: " + resourceDir.getAbsolutePath());
-                return;
-            }
-        }
+        File resourceDir = findResourceDirectory();
+        if (resourceDir == null) return;
 
         System.out.println("resource 디렉토리에서 PNG 파일들을 재귀적으로 로드 중: " + resourceDir.getAbsolutePath());
 
         List<File> pngFiles = new ArrayList<>();
         collectPngFiles(resourceDir, pngFiles);
 
-        for (File pngFile : pngFiles) {
-            try {
-                BufferedImage image = ImageIO.read(pngFile);
-                String fileName = pngFile.getName();
-                String fileNameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
-
-                preloadedImages.put(fileName, image);
-                preloadedImages.put(fileNameWithoutExt, image);
-
-            } catch (Exception e) {
-                System.err.println("PNG 파일 로드 실패: " + pngFile.getName() + " - " + e.getMessage());
-            }
-        }
+        pngFiles.parallelStream().forEach(this::loadPngFile);
 
         System.out.println("총 " + pngFiles.size() + "개의 PNG 파일이 resource 디렉토리에서 로드되었습니다.");
+    }
+
+    private File findResourceDirectory() {
+        File resourceDir = new File("resource");
+        if (resourceDir.exists() && resourceDir.isDirectory()) {
+            return resourceDir;
+        }
+
+        File projectRoot = new File(System.getProperty("user.dir"));
+        resourceDir = new File(projectRoot, "resource");
+
+        if (resourceDir.exists() && resourceDir.isDirectory()) {
+            return resourceDir;
+        }
+
+        System.err.println("resource 디렉토리를 찾을 수 없습니다: " + resourceDir.getAbsolutePath());
+        return null;
     }
 
     private void collectPngFiles(File dir, List<File> pngFiles) {
@@ -325,157 +287,65 @@ public class TmxParser {
         }
     }
 
+    private void loadPngFile(File pngFile) {
+        try {
+            BufferedImage image = ImageIO.read(pngFile);
+            String fileName = pngFile.getName();
+            String fileNameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+
+            preloadedImages.put(fileName, image);
+            preloadedImages.put(fileNameWithoutExt, image);
+
+        } catch (Exception e) {
+            System.err.println("PNG 파일 로드 실패: " + pngFile.getName() + " - " + e.getMessage());
+        }
+    }
+
     private BufferedImage findImageByName(String imagePath) {
         String fileName = new File(imagePath).getName();
 
         BufferedImage image = preloadedImages.get(fileName);
-        if (image != null) {
-            return image;
-        }
+        if (image != null) return image;
 
         if (fileName.contains(".")) {
             String nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
             image = preloadedImages.get(nameWithoutExt);
-            if (image != null) {
-                return image;
-            }
+            if (image != null) return image;
         }
 
         if (!fileName.contains(".")) {
-            image = preloadedImages.get(fileName + ".png");
-            return image;
+            return preloadedImages.get(fileName + ".png");
         }
 
         return null;
     }
 
-    /**
-     * 레이어 이름을 정규화하고 렌더링 순서를 결정
-     * AlwaysFront2 -> ALWAYSFRONT, Front3 -> FRONT 등으로 변환
-     */
     private String normalizeLayerName(String layerName) {
         if (layerName == null) return "UNKNOWN";
-
-        String normalized = layerName.toUpperCase();
-
-        // 숫자 제거 (AlwaysFront2 -> ALWAYSFRONT)
-        normalized = normalized.replaceAll("\\d+$", "");
-
-        return normalized;
+        return layerName.toUpperCase().replaceAll("\\d+$", "");
     }
 
-    /**
-     * 정규화된 레이어 이름으로 렌더링 순서 가져오기
-     */
     private int getLayerRenderOrder(String normalizedLayerName) {
-        return LAYER_ORDER.getOrDefault(normalizedLayerName, 999); // 알 수 없는 레이어는 맨 뒤
+        return LAYER_ORDER.getOrDefault(normalizedLayerName, 999);
     }
 
     public boolean loadTMX(String tmxPath) {
         try {
-            // 기존 데이터 초기화
-            tilesets.clear();
-            layers.clear();
-            gidToTilesetCache.clear();
-            globalTileCache.clear();
+            // Clear existing data
+            clearExistingData();
 
             File tmxFile = new File(tmxPath);
+            Document doc = parseXmlDocument(tmxFile);
 
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            DocumentBuilder builder = factory.newDocumentBuilder();
-            Document doc = builder.parse(tmxFile);
-            doc.getDocumentElement().normalize();
-
-            // 맵 속성 파싱
+            // Parse map properties
             Element mapElement = doc.getDocumentElement();
-            mapWidth = Integer.parseInt(mapElement.getAttribute("width"));
-            mapHeight = Integer.parseInt(mapElement.getAttribute("height"));
-            tileWidth = Integer.parseInt(mapElement.getAttribute("tilewidth"));
-            tileHeight = Integer.parseInt(mapElement.getAttribute("tileheight"));
+            parseMapProperties(mapElement);
 
-            calculateMapOffset();
+            // Parse tilesets and layers
+            parseTilesets(doc);
+            parseLayers(doc);
 
-            int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
-            int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
-            camera.setMapBounds(mapPixelWidth, mapPixelHeight);
-
-            setPlayerStartPosition(10, 10);
-
-            // 타일셋 파싱
-            NodeList tilesetNodes = doc.getElementsByTagName("tileset");
-            for (int i = 0; i < tilesetNodes.getLength(); i++) {
-                Element tilesetElement = (Element) tilesetNodes.item(i);
-                Tileset tileset = new Tileset();
-
-                tileset.firstGid = Integer.parseInt(tilesetElement.getAttribute("firstgid"));
-                tileset.name = tilesetElement.getAttribute("name");
-                tileset.tileWidth = Integer.parseInt(tilesetElement.getAttribute("tilewidth"));
-                tileset.tileHeight = Integer.parseInt(tilesetElement.getAttribute("tileheight"));
-                tileset.tileCount = Integer.parseInt(tilesetElement.getAttribute("tilecount"));
-                tileset.columns = Integer.parseInt(tilesetElement.getAttribute("columns"));
-
-                // 이미지 경로 가져오기
-                NodeList imageNodes = tilesetElement.getElementsByTagName("image");
-                if (imageNodes.getLength() > 0) {
-                    Element imageElement = (Element) imageNodes.item(0);
-                    tileset.imagePath = imageElement.getAttribute("source");
-                    tileset.image = findImageByName(tileset.imagePath);
-
-                    if (tileset.image != null) {
-                        System.out.println("타일셋 이미지 연결됨: " + tileset.imagePath + " -> " + tileset.name);
-                    } else {
-                        System.err.println("타일셋 이미지를 찾을 수 없습니다: " + tileset.imagePath);
-                    }
-                }
-
-                tilesets.add(tileset);
-                System.out.println("타일셋 추가됨: " + tileset.name + " (GID: " + tileset.firstGid + ")");
-            }
-
-            // 레이어 파싱 및 정렬
-            NodeList layerNodes = doc.getElementsByTagName("layer");
-            for (int i = 0; i < layerNodes.getLength(); i++) {
-                Element layerElement = (Element) layerNodes.item(i);
-                Layer layer = new Layer();
-
-                layer.name = layerElement.getAttribute("name");
-                layer.layerType = normalizeLayerName(layer.name);
-                layer.renderOrder = getLayerRenderOrder(layer.layerType);
-                layer.width = Integer.parseInt(layerElement.getAttribute("width"));
-                layer.height = Integer.parseInt(layerElement.getAttribute("height"));
-
-                // 투명도 체크
-                String opacity = layerElement.getAttribute("opacity");
-                if (!opacity.isEmpty() && Float.parseFloat(opacity) == 0.0f) {
-                    layer.visible = false;
-                }
-
-                // 데이터 파싱 (CSV 형식)
-                NodeList dataNodes = layerElement.getElementsByTagName("data");
-                if (dataNodes.getLength() > 0) {
-                    Element dataElement = (Element) dataNodes.item(0);
-                    String encoding = dataElement.getAttribute("encoding");
-
-                    if ("csv".equals(encoding)) {
-                        String csvData = dataElement.getTextContent().trim();
-                        String[] values = csvData.split(",");
-                        layer.data = new int[values.length];
-
-                        for (int j = 0; j < values.length; j++) {
-                            layer.data[j] = Integer.parseInt(values[j].trim());
-                        }
-                    }
-                }
-
-                layers.add(layer);
-                System.out.println("레이어 추가됨: " + layer.name + " -> " + layer.layerType +
-                        " (순서: " + layer.renderOrder + ", " + layer.width + "x" + layer.height + ")");
-            }
-
-            // 레이어를 렌더링 순서대로 정렬
-            layers.sort(Comparator.comparingInt(layer -> layer.renderOrder));
-            System.out.println("레이어 정렬 완료 (렌더링 순서: Back -> Buildings -> Paths -> Front -> AlwaysFront)");
-
+            // Setup caches and systems
             buildTilesetCache();
             preloadTileImages();
             setupCollisionLayer();
@@ -497,6 +367,124 @@ public class TmxParser {
         }
     }
 
+    private void clearExistingData() {
+        tilesets.clear();
+        layers.clear();
+        gidToTilesetCache.clear();
+        globalTileCache.clear();
+    }
+
+    private Document parseXmlDocument(File tmxFile) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(tmxFile);
+        doc.getDocumentElement().normalize();
+        return doc;
+    }
+
+    private void parseMapProperties(Element mapElement) {
+        mapWidth = Integer.parseInt(mapElement.getAttribute("width"));
+        mapHeight = Integer.parseInt(mapElement.getAttribute("height"));
+        tileWidth = Integer.parseInt(mapElement.getAttribute("tilewidth"));
+        tileHeight = Integer.parseInt(mapElement.getAttribute("tileheight"));
+
+        calculateMapOffset();
+
+        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+        camera.setMapBounds(mapPixelWidth, mapPixelHeight);
+
+        setPlayerStartPosition(10, 10);
+    }
+
+    private void parseTilesets(Document doc) {
+        NodeList tilesetNodes = doc.getElementsByTagName("tileset");
+        for (int i = 0; i < tilesetNodes.getLength(); i++) {
+            Element tilesetElement = (Element) tilesetNodes.item(i);
+            Tileset tileset = createTileset(tilesetElement);
+            tilesets.add(tileset);
+            System.out.println("타일셋 추가됨: " + tileset.name + " (GID: " + tileset.firstGid + ")");
+        }
+    }
+
+    private Tileset createTileset(Element tilesetElement) {
+        Tileset tileset = new Tileset();
+        tileset.firstGid = Integer.parseInt(tilesetElement.getAttribute("firstgid"));
+        tileset.name = tilesetElement.getAttribute("name");
+        tileset.tileWidth = Integer.parseInt(tilesetElement.getAttribute("tilewidth"));
+        tileset.tileHeight = Integer.parseInt(tilesetElement.getAttribute("tileheight"));
+        tileset.tileCount = Integer.parseInt(tilesetElement.getAttribute("tilecount"));
+        tileset.columns = Integer.parseInt(tilesetElement.getAttribute("columns"));
+
+        // Parse image path
+        NodeList imageNodes = tilesetElement.getElementsByTagName("image");
+        if (imageNodes.getLength() > 0) {
+            Element imageElement = (Element) imageNodes.item(0);
+            tileset.imagePath = imageElement.getAttribute("source");
+            tileset.image = findImageByName(tileset.imagePath);
+
+            if (tileset.image != null) {
+                System.out.println("타일셋 이미지 연결됨: " + tileset.imagePath + " -> " + tileset.name);
+            } else {
+                System.err.println("타일셋 이미지를 찾을 수 없습니다: " + tileset.imagePath);
+            }
+        }
+
+        return tileset;
+    }
+
+    private void parseLayers(Document doc) {
+        NodeList layerNodes = doc.getElementsByTagName("layer");
+        for (int i = 0; i < layerNodes.getLength(); i++) {
+            Element layerElement = (Element) layerNodes.item(i);
+            Layer layer = createLayer(layerElement);
+            layers.add(layer);
+            System.out.println("레이어 추가됨: " + layer.name + " -> " + layer.layerType +
+                    " (순서: " + layer.renderOrder + ", " + layer.width + "x" + layer.height + ")");
+        }
+
+        // Sort layers by render order
+        layers.sort(Comparator.comparingInt(layer -> layer.renderOrder));
+        System.out.println("레이어 정렬 완료 (렌더링 순서: Back -> Buildings -> Paths -> Front -> AlwaysFront)");
+    }
+
+    private Layer createLayer(Element layerElement) {
+        Layer layer = new Layer();
+        layer.name = layerElement.getAttribute("name");
+        layer.layerType = normalizeLayerName(layer.name);
+        layer.renderOrder = getLayerRenderOrder(layer.layerType);
+        layer.width = Integer.parseInt(layerElement.getAttribute("width"));
+        layer.height = Integer.parseInt(layerElement.getAttribute("height"));
+
+        // Check opacity
+        String opacity = layerElement.getAttribute("opacity");
+        if (!opacity.isEmpty() && Float.parseFloat(opacity) == 0.0f) {
+            layer.visible = false;
+        }
+
+        // Parse data (CSV format)
+        NodeList dataNodes = layerElement.getElementsByTagName("data");
+        if (dataNodes.getLength() > 0) {
+            Element dataElement = (Element) dataNodes.item(0);
+            String encoding = dataElement.getAttribute("encoding");
+
+            if ("csv".equals(encoding)) {
+                parseLayerData(layer, dataElement.getTextContent().trim());
+            }
+        }
+
+        return layer;
+    }
+
+    private void parseLayerData(Layer layer, String csvData) {
+        String[] values = csvData.split(",");
+        layer.data = new int[values.length];
+
+        for (int j = 0; j < values.length; j++) {
+            layer.data[j] = Integer.parseInt(values[j].trim());
+        }
+    }
+
     private void buildTilesetCache() {
         for (Tileset tileset : tilesets) {
             for (int i = 0; i < tileset.tileCount; i++) {
@@ -511,30 +499,34 @@ public class TmxParser {
         new Thread(() -> {
             System.out.println("타일 이미지 캐싱 시작...");
 
-            // 커스텀 Path 이미지들 먼저 로드
             loadCustomPathImages();
-
-            int cachedCount = 0;
-
-            Set<Integer> uniqueGids = new HashSet<>();
-            for (Layer layer : layers) {
-                if (!layer.visible) continue;
-                for (int gid : layer.data) if (gid > 0) uniqueGids.add(gid);
-            }
-
-            for (int gid : uniqueGids) {
-                BufferedImage tileImage = createTileImage(gid);
-                if (tileImage != null) {
-                    globalTileCache.put(gid, tileImage);
-                    cachedCount++;
-                }
-            }
+            int cachedCount = cacheAllVisibleTiles();
 
             System.out.println("타일 이미지 캐싱 완료: " + cachedCount + " tiles");
             SwingUtilities.invokeLater(canvas::repaint);
         }).start();
     }
 
+    private int cacheAllVisibleTiles() {
+        Set<Integer> uniqueGids = new HashSet<>();
+        for (Layer layer : layers) {
+            if (!layer.visible) continue;
+            for (int gid : layer.data) {
+                if (gid > 0) uniqueGids.add(gid);
+            }
+        }
+
+        int cachedCount = 0;
+        for (int gid : uniqueGids) {
+            BufferedImage tileImage = createTileImage(gid);
+            if (tileImage != null) {
+                globalTileCache.put(gid, tileImage);
+                cachedCount++;
+            }
+        }
+
+        return cachedCount;
+    }
 
     private Tileset findTilesetForGid(int gid) {
         return gidToTilesetCache.get(gid);
@@ -543,12 +535,10 @@ public class TmxParser {
     private BufferedImage createTileImage(int gid) {
         if (gid == 0) return null;
 
-        // Path 레이어용 커스텀 타일 체크
+        // Check for custom path tiles
         if (pathTileCustomizations.containsKey(gid)) {
             BufferedImage customTile = createCustomPathTileImage(gid);
-            if (customTile != null) {
-                return customTile;
-            }
+            if (customTile != null) return customTile;
         }
 
         Tileset tileset = findTilesetForGid(gid);
@@ -557,6 +547,10 @@ public class TmxParser {
         BufferedImage cachedTile = tileset.tileCache.get(gid);
         if (cachedTile != null) return cachedTile;
 
+        return extractTileFromTileset(tileset, gid);
+    }
+
+    private BufferedImage extractTileFromTileset(Tileset tileset, int gid) {
         int tileId = gid - tileset.firstGid;
         int tilesPerRow = tileset.columns;
         int tileX = (tileId % tilesPerRow) * tileset.tileWidth;
@@ -575,123 +569,117 @@ public class TmxParser {
         if (gid == 0) return null;
 
         BufferedImage cachedImage = globalTileCache.get(gid);
-        if (cachedImage != null) return cachedImage;
-
-        return createTileImage(gid);
+        return cachedImage != null ? cachedImage : createTileImage(gid);
     }
 
-    /**
-     * 레이어 순서에 따른 렌더링 시스템
-     * 순서: Back -> Buildings -> Paths -> [플레이어] -> Front -> AlwaysFront
-     */
     private void renderTileMapWithCamera(Graphics g) {
-        Graphics2D g2d = (Graphics2D) g;
-        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-
-        g2d.setColor(Color.BLACK);
-        g2d.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        Graphics2D g2d = setupGraphics(g);
 
         int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
         int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
         if (mapPixelWidth > canvas.getWidth() || mapPixelHeight > canvas.getHeight()) {
-            camera.followPlayer(sprite);
-
-            int scaledTileWidth = tileWidth * TILE_SCALE;
-            int scaledTileHeight = tileHeight * TILE_SCALE;
-
-            int startTileX = Math.max(0, camera.getX() / scaledTileWidth);
-            int startTileY = Math.max(0, camera.getY() / scaledTileHeight);
-            int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 1);
-            int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 1);
-
-            // 플레이어 뒤쪽 레이어들 렌더링 (Back, Buildings, Paths)
-            renderLayersWithCamera(g2d, startTileX, startTileY, endTileX, endTileY, scaledTileWidth, scaledTileHeight, false);
-
-            // 플레이어 렌더링
-            renderPlayerWithCamera(g2d);
-
-            // 플레이어 앞쪽 레이어들 렌더링 (Front, AlwaysFront)
-            renderLayersWithCamera(g2d, startTileX, startTileY, endTileX, endTileY, scaledTileWidth, scaledTileHeight, true);
+            renderCameraMode(g2d);
         } else {
-            int scaledTileWidth = tileWidth * TILE_SCALE;
-            int scaledTileHeight = tileHeight * TILE_SCALE;
-
-            renderLayersFixed(g2d, scaledTileWidth, scaledTileHeight, false);
-            sprite.render(g2d);
-            renderLayersFixed(g2d, scaledTileWidth, scaledTileHeight, true);
+            renderFixedMode(g2d);
         }
 
         renderUI(g2d);
     }
 
-    /**
-     * 카메라 모드에서 레이어 렌더링
-     * @param frontLayersOnly true면 Front/AlwaysFront만, false면 Back/Buildings/Paths만
-     */
-    private void renderLayersWithCamera(Graphics2D g2d, int startTileX, int startTileY, int endTileX, int endTileY,
-                                        int scaledTileWidth, int scaledTileHeight, boolean frontLayersOnly) {
+    private Graphics2D setupGraphics(Graphics g) {
+        Graphics2D g2d = (Graphics2D) g;
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        g2d.setColor(Color.BLACK);
+        g2d.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        return g2d;
+    }
+
+    private void renderCameraMode(Graphics2D g2d) {
+        camera.followPlayer(sprite);
+
+        int scaledTileWidth = tileWidth * TILE_SCALE;
+        int scaledTileHeight = tileHeight * TILE_SCALE;
+
+        // Calculate visible tile bounds
+        Rectangle visibleBounds = calculateVisibleTileBounds(scaledTileWidth, scaledTileHeight);
+
+        // Render back layers, player, then front layers
+        renderLayersWithCamera(g2d, visibleBounds, scaledTileWidth, scaledTileHeight, false);
+        renderPlayerWithCamera(g2d);
+        renderLayersWithCamera(g2d, visibleBounds, scaledTileWidth, scaledTileHeight, true);
+    }
+
+    private Rectangle calculateVisibleTileBounds(int scaledTileWidth, int scaledTileHeight) {
+        int startTileX = Math.max(0, camera.getX() / scaledTileWidth);
+        int startTileY = Math.max(0, camera.getY() / scaledTileHeight);
+        int endTileX = Math.min(mapWidth - 1, (camera.getX() + camera.getViewWidth()) / scaledTileWidth + 1);
+        int endTileY = Math.min(mapHeight - 1, (camera.getY() + camera.getViewHeight()) / scaledTileHeight + 1);
+
+        return new Rectangle(startTileX, startTileY, endTileX - startTileX + 1, endTileY - startTileY + 1);
+    }
+
+    private void renderFixedMode(Graphics2D g2d) {
+        int scaledTileWidth = tileWidth * TILE_SCALE;
+        int scaledTileHeight = tileHeight * TILE_SCALE;
+
+        renderLayersFixed(g2d, scaledTileWidth, scaledTileHeight, false);
+        sprite.render(g2d);
+        renderLayersFixed(g2d, scaledTileWidth, scaledTileHeight, true);
+    }
+
+    private void renderLayersWithCamera(Graphics2D g2d, Rectangle bounds, int scaledTileWidth,
+                                        int scaledTileHeight, boolean frontLayersOnly) {
         for (Layer layer : layers) {
             if (!layer.visible) continue;
 
             boolean isFrontLayer = layer.layerType.equals("FRONT") || layer.layerType.equals("ALWAYSFRONT");
+            if (frontLayersOnly != isFrontLayer) continue;
 
-            if (frontLayersOnly && !isFrontLayer) continue;
-            if (!frontLayersOnly && isFrontLayer) continue;
-
-            for (int y = startTileY; y <= endTileY; y++) {
-                for (int x = startTileX; x <= endTileX; x++) {
-                    int index = y * layer.width + x;
-                    int gid = layer.data[index];
-                    if (gid == 0) continue;
-
-                    BufferedImage tileImage = globalTileCache.get(gid);
-                    if (tileImage != null) {
-                        int screenX = camera.worldToScreenX(x * scaledTileWidth);
-                        int screenY = camera.worldToScreenY(y * scaledTileHeight);
-
-                        if (pathTileCustomizations.containsKey(gid)) {
-                            renderCustomPathTile(g2d, tileImage, screenX, screenY,
-                                    scaledTileWidth, scaledTileHeight, gid, x, y);
-                        } else {
-                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
-                        }
-                    }
-                }
-            }
+            renderLayerTiles(g2d, layer, bounds, scaledTileWidth, scaledTileHeight, true);
         }
     }
 
     private void renderLayersFixed(Graphics2D g2d, int scaledTileWidth, int scaledTileHeight, boolean frontLayersOnly) {
+        Rectangle fullBounds = new Rectangle(0, 0, mapWidth, mapHeight);
+
         for (Layer layer : layers) {
             if (!layer.visible) continue;
 
             boolean isFrontLayer = layer.layerType.equals("FRONT") || layer.layerType.equals("ALWAYSFRONT");
+            if (frontLayersOnly != isFrontLayer) continue;
 
-            if (frontLayersOnly && !isFrontLayer) continue;
-            if (!frontLayersOnly && isFrontLayer) continue;
+            renderLayerTiles(g2d, layer, fullBounds, scaledTileWidth, scaledTileHeight, false);
+        }
+    }
 
-            for (int y = 0; y < mapHeight; y++) {
-                for (int x = 0; x < mapWidth; x++) {
-                    int index = y * layer.width + x;
-                    if (index >= layer.data.length) continue;
+    private void renderLayerTiles(Graphics2D g2d, Layer layer, Rectangle bounds,
+                                  int scaledTileWidth, int scaledTileHeight, boolean useCamera) {
+        for (int y = bounds.y; y < bounds.y + bounds.height && y < mapHeight; y++) {
+            for (int x = bounds.x; x < bounds.x + bounds.width && x < mapWidth; x++) {
+                int index = y * layer.width + x;
+                if (index >= layer.data.length) continue;
 
-                    int gid = layer.data[index];
-                    if (gid == 0) continue;
+                int gid = layer.data[index];
+                if (gid == 0) continue;
 
-                    BufferedImage tileImage = getTileImage(gid);
-                    if (tileImage != null) {
-                        int screenX = mapOffsetX + x * scaledTileWidth;
-                        int screenY = mapOffsetY + y * scaledTileHeight;
+                BufferedImage tileImage = globalTileCache.get(gid);
+                if (tileImage == null) continue;
 
-                        // 커스텀 Path 타일인지 확인하고 타일 좌표도 전달
-                        if (pathTileCustomizations.containsKey(gid)) {
-                            renderCustomPathTile(g2d, tileImage, screenX, screenY,
-                                    scaledTileWidth, scaledTileHeight, gid, x, y);
-                        } else {
-                            g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
-                        }
-                    }
+                int screenX, screenY;
+                if (useCamera) {
+                    screenX = camera.worldToScreenX(x * scaledTileWidth);
+                    screenY = camera.worldToScreenY(y * scaledTileHeight);
+                } else {
+                    screenX = mapOffsetX + x * scaledTileWidth;
+                    screenY = mapOffsetY + y * scaledTileHeight;
+                }
+
+                if (pathTileCustomizations.containsKey(gid)) {
+                    renderCustomPathTile(g2d, tileImage, screenX, screenY,
+                            scaledTileWidth, scaledTileHeight, gid, x, y);
+                } else {
+                    g2d.drawImage(tileImage, screenX, screenY, scaledTileWidth, scaledTileHeight, null);
                 }
             }
         }
@@ -709,12 +697,17 @@ public class TmxParser {
         if (customization.isGrass) {
             BufferedImage sourceImage = customPathImages.get(customization.imagePath);
             if (sourceImage != null) {
-                renderGrassTile(g2d, sourceImage, screenX, screenY, tileWidth, tileHeight,
-                        gid, tileX, tileY);
+                renderGrassTile(g2d, sourceImage, screenX, screenY, tileWidth, tileHeight, gid, tileX, tileY);
                 return;
             }
         }
 
+        renderCustomTileWithMode(g2d, tileImage, screenX, screenY, tileWidth, tileHeight, customization);
+    }
+
+    private void renderCustomTileWithMode(Graphics2D g2d, BufferedImage tileImage,
+                                          int screenX, int screenY, int tileWidth, int tileHeight,
+                                          PathTileCustomization customization) {
         int originalWidth = tileImage.getWidth();
         int originalHeight = tileImage.getHeight();
 
@@ -725,52 +718,38 @@ public class TmxParser {
 
         switch (customization.renderMode) {
             case STRETCH:
-                // 기본 동작 - 타일 크기에 맞게 늘리기
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
             case ASPECT_FIT:
-                // 비율 유지하며 타일 안에 맞추기
-                double scaleX = (double) tileWidth / originalWidth;
-                double scaleY = (double) tileHeight / originalHeight;
-                double scale = Math.min(scaleX, scaleY);
-
+                double scale = Math.min((double) tileWidth / originalWidth, (double) tileHeight / originalHeight);
                 renderWidth = (int) (originalWidth * scale);
                 renderHeight = (int) (originalHeight * scale);
                 renderX = screenX + (tileWidth - renderWidth) / 2 + customization.offsetX;
                 renderY = screenY + (tileHeight - renderHeight) / 2 + customization.offsetY;
-
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
             case ASPECT_FILL:
-                // 비율 유지하며 타일을 채우기 (잘릴 수 있음)
-                scaleX = (double) tileWidth / originalWidth;
-                scaleY = (double) tileHeight / originalHeight;
-                scale = Math.max(scaleX, scaleY);
-
+                scale = Math.max((double) tileWidth / originalWidth, (double) tileHeight / originalHeight);
                 renderWidth = (int) (originalWidth * scale);
                 renderHeight = (int) (originalHeight * scale);
                 renderX = screenX + (tileWidth - renderWidth) / 2 + customization.offsetX;
                 renderY = screenY + (tileHeight - renderHeight) / 2 + customization.offsetY;
-
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
             case ORIGINAL_SIZE:
-                // 원본 크기 유지
                 renderWidth = originalWidth;
                 renderHeight = originalHeight;
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
 
             case CENTER:
-                // 원본 크기로 중앙 정렬
                 renderWidth = originalWidth;
                 renderHeight = originalHeight;
                 renderX = screenX + (tileWidth - renderWidth) / 2 + customization.offsetX;
                 renderY = screenY + (tileHeight - renderHeight) / 2 + customization.offsetY;
-
                 g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
                 break;
         }
@@ -799,61 +778,51 @@ public class TmxParser {
     }
 
     public void setPlayerStartPosition(int tileX, int tileY) {
-        if (mapWidth > 0 && mapHeight > 0) {
-            int pixelX = mapOffsetX + tileX * tileWidth * TILE_SCALE;
-            int pixelY = mapOffsetY + tileY * tileHeight * TILE_SCALE;
+        if (mapWidth <= 0 || mapHeight <= 0) return;
 
-            int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
-            int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+        int pixelX = mapOffsetX + tileX * tileWidth * TILE_SCALE;
+        int pixelY = mapOffsetY + tileY * tileHeight * TILE_SCALE;
 
-            int minX = mapOffsetX;
-            int minY = mapOffsetY;
-            int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
-            int maxY = mapOffsetY + mapPixelHeight - sprite.getHeight();
+        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
-            pixelX = Math.max(minX, Math.min(maxX, pixelX));
-            pixelY = Math.max(minY, Math.min(maxY, pixelY));
+        int minX = mapOffsetX;
+        int minY = mapOffsetY;
+        int maxX = mapOffsetX + mapPixelWidth - sprite.getWidth();
+        int maxY = mapOffsetY + mapPixelHeight - sprite.getHeight();
 
-            sprite.setPosition(pixelX, pixelY);
-            System.out.println("플레이어 위치 설정: 타일(" + tileX + ", " + tileY + ") -> 픽셀(" + pixelX + ", " + pixelY + ")");
-        }
+        pixelX = Math.max(minX, Math.min(maxX, pixelX));
+        pixelY = Math.max(minY, Math.min(maxY, pixelY));
+
+        sprite.setPosition(pixelX, pixelY);
+        System.out.println("플레이어 위치 설정: 타일(" + tileX + ", " + tileY + ") -> 픽셀(" + pixelX + ", " + pixelY + ")");
     }
 
-    // 잔디 렌더링을 위한 랜덤 시드 캐시
-    private Map<String, Random> grassRandomCache = new HashMap<>();
-
-    // 잔디 타일 렌더링을 위한 특별한 메서드
     private void renderGrassTile(Graphics2D g2d, BufferedImage sourceImage,
                                  int screenX, int screenY, int tileWidth, int tileHeight,
                                  int gid, int tileX, int tileY) {
-
-
         PathTileCustomization customization = pathTileCustomizations.get(gid);
         if (customization == null) return;
 
-        BufferedImage cachedSourceImage = customPathImages.get(customization.imagePath);
-        if (cachedSourceImage == null) return;
-
         String tileKey = gid + "_" + tileX + "_" + tileY;
 
-        // 캐시에서 풀 위치들 가져오기, 없으면 생성
-        List<GrassInstance> grassInstances = grassPositionCache.get(tileKey);
-        if (grassInstances == null) {
-            grassInstances = generateGrassPositions(tileKey, tileWidth, tileHeight, customization);
-            grassPositionCache.put(tileKey, grassInstances);
-        }
+        // Get or generate grass positions
+        List<GrassInstance> grassInstances = grassPositionCache.computeIfAbsent(tileKey,
+                k -> generateGrassPositions(k, tileWidth, tileHeight, customization));
 
-        // 저장된 풀들을 렌더링
-        for (GrassInstance grass : grassInstances) {
-            int drawX = screenX + grass.x;
-            int drawY = screenY + grass.y;
-
-            BufferedImage[] preExtractedTiles = preExtractedGrassTiles.get(customization.imagePath);
-            BufferedImage grassTile = (preExtractedTiles != null && grass.index < preExtractedTiles.length)
-                    ? preExtractedTiles[grass.index] : null;
-            if (grassTile != null) {
-                g2d.drawImage(grassTile, drawX, drawY,
-                        customization.tileWidth, customization.tileHeight, null);
+        // Render stored grass instances
+        BufferedImage[] preExtractedTiles = preExtractedGrassTiles.get(customization.imagePath);
+        if (preExtractedTiles != null) {
+            for (GrassInstance grass : grassInstances) {
+                if (grass.index < preExtractedTiles.length) {
+                    BufferedImage grassTile = preExtractedTiles[grass.index];
+                    if (grassTile != null) {
+                        int drawX = screenX + grass.x;
+                        int drawY = screenY + grass.y;
+                        g2d.drawImage(grassTile, drawX, drawY,
+                                customization.tileWidth, customization.tileHeight, null);
+                    }
+                }
             }
         }
     }
@@ -863,27 +832,23 @@ public class TmxParser {
         List<GrassInstance> instances = new ArrayList<>();
         Random random = new Random(tileKey.hashCode());
 
-        // 타일을 4등분
         int quarterWidth = tileWidth / 2;
         int quarterHeight = tileHeight / 2;
 
-        // 각 사분면에 2-4개의 풀을 랜덤 생성
+        // Generate 2-4 grass instances in each quadrant
         for (int qx = 0; qx < 2; qx++) {
             for (int qy = 0; qy < 2; qy++) {
-                int grassCount = 2 + random.nextInt(3); // 2-4개 랜덤
+                int grassCount = 2 + random.nextInt(3);
 
                 for (int i = 0; i < grassCount; i++) {
-                    // 랜덤 인덱스 선택 (0, 1, 2)
                     int grassIndex = random.nextInt(3);
 
-                    // 사분면 내 랜덤 위치 생성 (풀 크기 고려)
                     int maxX = quarterWidth - customization.tileWidth;
                     int maxY = quarterHeight - customization.tileHeight;
 
                     if (maxX > 0 && maxY > 0) {
                         int randomX = (qx * quarterWidth) + random.nextInt(maxX);
                         int randomY = (qy * quarterHeight) + random.nextInt(maxY);
-
                         instances.add(new GrassInstance(randomX, randomY, grassIndex));
                     }
                 }
@@ -893,26 +858,9 @@ public class TmxParser {
         return instances;
     }
 
-    // 인덱스로 풀 타일 추출하는 헬퍼 메서드
-    private BufferedImage extractGrassTileByIndex(BufferedImage sourceImage, int index,
-                                                  PathTileCustomization customization) {
-        try {
-            int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
-            int tileX = (index % tilesPerRow) * customization.tileWidth;
-            int tileY = (index / tilesPerRow) * customization.tileHeight;
-
-            return sourceImage.getSubimage(tileX, tileY,
-                    customization.tileWidth, customization.tileHeight);
-        } catch (Exception e) {
-            System.err.println("풀 타일 추출 실패: 인덱스 " + index + " - " + e.getMessage());
-            return null;
-        }
-    }
-
     private void renderUI(Graphics2D g2d) {
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        Font uiFont = new Font("Arial", Font.BOLD, 12);
-        g2d.setFont(uiFont);
+        g2d.setFont(new Font("Arial", Font.BOLD, 12));
 
         renderMainInfoPanel(g2d);
         renderMapDetailPanel(g2d);
@@ -920,75 +868,61 @@ public class TmxParser {
     }
 
     private void renderMainInfoPanel(Graphics2D g2d) {
-        int panelWidth = 280;
-        int panelHeight = 100;
+        renderPanel(g2d, 10, 10, 280, 100, () -> {
+            int yOffset = 25;
+            final int lineHeight = 16;
 
-        g2d.setColor(new Color(0, 0, 0, 150));
-        g2d.fillRect(10, 10, panelWidth, panelHeight);
+            g2d.setColor(Color.WHITE);
+            g2d.drawString(String.format("Player Position: (%d, %d)", sprite.getX(), sprite.getY()), 15, yOffset);
+            yOffset += lineHeight;
 
-        g2d.setColor(new Color(100, 100, 100));
-        g2d.drawRect(10, 10, panelWidth, panelHeight);
+            int playerTileX = (sprite.getX() - mapOffsetX) / (tileWidth * TILE_SCALE);
+            int playerTileY = (sprite.getY() - mapOffsetY) / (tileHeight * TILE_SCALE);
+            g2d.drawString(String.format("Player Tile: (%d, %d)", playerTileX, playerTileY), 15, yOffset);
+            yOffset += lineHeight;
 
-        g2d.setColor(Color.WHITE);
+            g2d.drawString(String.format("Camera: (%d, %d)", camera.getX(), camera.getY()), 15, yOffset);
+            yOffset += lineHeight;
 
-        int yOffset = 25;
-        int lineHeight = 16;
+            g2d.drawString(String.format("Map Size: %d x %d tiles", mapWidth, mapHeight), 15, yOffset);
+            yOffset += lineHeight;
 
-        g2d.drawString(String.format("Player Position: (%d, %d)", sprite.getX(), sprite.getY()), 15, yOffset);
-        yOffset += lineHeight;
-
-        int playerTileX = (sprite.getX() - mapOffsetX) / (tileWidth * TILE_SCALE);
-        int playerTileY = (sprite.getY() - mapOffsetY) / (tileHeight * TILE_SCALE);
-        g2d.drawString(String.format("Player Tile: (%d, %d)", playerTileX, playerTileY), 15, yOffset);
-        yOffset += lineHeight;
-
-        g2d.drawString(String.format("Camera: (%d, %d)", camera.getX(), camera.getY()), 15, yOffset);
-        yOffset += lineHeight;
-
-        g2d.drawString(String.format("Map Size: %d x %d tiles", mapWidth, mapHeight), 15, yOffset);
-        yOffset += lineHeight;
-
-        g2d.drawString(String.format("Tile Size: %dx%d pixels", tileWidth, tileHeight), 15, yOffset);
+            g2d.drawString(String.format("Tile Size: %dx%d pixels", tileWidth, tileHeight), 15, yOffset);
+        });
     }
 
     private void renderMapDetailPanel(Graphics2D g2d) {
         int panelWidth = 300;
         int panelHeight = 120;
         int panelX = canvas.getWidth() - panelWidth - 10;
-        int panelY = 10;
 
-        g2d.setColor(new Color(0, 0, 0, 150));
-        g2d.fillRect(panelX, panelY, panelWidth, panelHeight);
+        renderPanel(g2d, panelX, 10, panelWidth, panelHeight, () -> {
+            int yOffset = 25;
+            final int lineHeight = 14;
 
-        g2d.setColor(new Color(100, 100, 100));
-        g2d.drawRect(panelX, panelY, panelWidth, panelHeight);
+            int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
+            int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
 
-        g2d.setColor(Color.CYAN);
+            g2d.setColor(Color.CYAN);
+            g2d.drawString(String.format("Map Pixel Size: %dx%d", mapPixelWidth, mapPixelHeight), panelX + 5, yOffset);
+            yOffset += lineHeight;
 
-        int yOffset = panelY + 15;
-        int lineHeight = 14;
+            g2d.drawString(String.format("Canvas Size: %dx%d", canvas.getWidth(), canvas.getHeight()), panelX + 5, yOffset);
+            yOffset += lineHeight;
 
-        int mapPixelWidth = mapWidth * tileWidth * TILE_SCALE;
-        int mapPixelHeight = mapHeight * tileHeight * TILE_SCALE;
+            g2d.drawString(String.format("Map Offset: X=%d, Y=%d", mapOffsetX, mapOffsetY), panelX + 5, yOffset);
+            yOffset += lineHeight;
 
-        g2d.drawString(String.format("Map Pixel Size: %dx%d", mapPixelWidth, mapPixelHeight), panelX + 5, yOffset);
-        yOffset += lineHeight;
+            g2d.drawString(String.format("Tile Scale: x%d", TILE_SCALE), panelX + 5, yOffset);
+            yOffset += lineHeight;
 
-        g2d.drawString(String.format("Canvas Size: %dx%d", canvas.getWidth(), canvas.getHeight()), panelX + 5, yOffset);
-        yOffset += lineHeight;
+            g2d.setColor(Color.YELLOW);
+            g2d.drawString(String.format("Tilesets: %d, Layers: %d", tilesets.size(), layers.size()), panelX + 5, yOffset);
+            yOffset += lineHeight;
 
-        g2d.drawString(String.format("Map Offset: X=%d, Y=%d", mapOffsetX, mapOffsetY), panelX + 5, yOffset);
-        yOffset += lineHeight;
-
-        g2d.drawString(String.format("Tile Scale: x%d", TILE_SCALE), panelX + 5, yOffset);
-        yOffset += lineHeight;
-
-        g2d.setColor(Color.YELLOW);
-        g2d.drawString(String.format("Tilesets: %d, Layers: %d", tilesets.size(), layers.size()), panelX + 5, yOffset);
-        yOffset += lineHeight;
-
-        g2d.setColor(Color.LIGHT_GRAY);
-        g2d.drawString(String.format("Cache: %d tilesets, %d tiles", gidToTilesetCache.size(), globalTileCache.size()), panelX + 5, yOffset);
+            g2d.setColor(Color.LIGHT_GRAY);
+            g2d.drawString(String.format("Cache: %d tilesets, %d tiles", gidToTilesetCache.size(), globalTileCache.size()), panelX + 5, yOffset);
+        });
     }
 
     private void renderSystemInfoPanel(Graphics2D g2d) {
@@ -999,48 +933,54 @@ public class TmxParser {
 
         int panelWidth = 400;
         int panelHeight = baseHeight + layerHeight + keyHeight;
-        int panelX = 10;
         int panelY = canvas.getHeight() - panelHeight - 10;
 
-        g2d.setColor(new Color(0, 0, 0, 150));
-        g2d.fillRect(panelX, panelY, panelWidth, panelHeight);
+        renderPanel(g2d, 10, panelY, panelWidth, panelHeight, () -> {
+            int yOffset = panelY + 15;
 
-        g2d.setColor(new Color(100, 100, 100));
-        g2d.drawRect(panelX, panelY, panelWidth, panelHeight);
-
-        g2d.setColor(Color.ORANGE);
-
-        int yOffset = panelY + 15;
-
-        if (!layers.isEmpty()) {
-            g2d.drawString("Layer Order (rendering sequence):", panelX + 5, yOffset);
-            yOffset += lineHeight;
-
-            for (Layer layer : layers) {
-                g2d.setColor(Color.WHITE);
-                g2d.drawString(String.format("  %s (%s) - Order: %d",
-                        layer.name, layer.layerType, layer.renderOrder), panelX + 10, yOffset);
+            if (!layers.isEmpty()) {
+                g2d.setColor(Color.ORANGE);
+                g2d.drawString("Layer Order (rendering sequence):", 15, yOffset);
                 yOffset += lineHeight;
-            }
-        }
 
-        if (!keysPressed.isEmpty()) {
-            yOffset += 5;
-            g2d.setColor(Color.GREEN);
-            g2d.drawString("Keys Pressed: " + String.join(", ", keysPressed), panelX + 5, yOffset);
-        }
+                for (Layer layer : layers) {
+                    g2d.setColor(Color.WHITE);
+                    g2d.drawString(String.format("  %s (%s) - Order: %d",
+                            layer.name, layer.layerType, layer.renderOrder), 20, yOffset);
+                    yOffset += lineHeight;
+                }
+            }
+
+            if (!keysPressed.isEmpty()) {
+                yOffset += 5;
+                g2d.setColor(Color.GREEN);
+                g2d.drawString("Keys Pressed: " + String.join(", ", keysPressed), 15, yOffset);
+            }
+        });
+    }
+
+    private void renderPanel(Graphics2D g2d, int x, int y, int width, int height, Runnable contentRenderer) {
+        // Panel background
+        g2d.setColor(new Color(0, 0, 0, 150));
+        g2d.fillRect(x, y, width, height);
+
+        // Panel border
+        g2d.setColor(new Color(100, 100, 100));
+        g2d.drawRect(x, y, width, height);
+
+        // Render content
+        contentRenderer.run();
     }
 
     private void setupCollisionLayer() {
-        for (Layer layer : layers) {
-            if ("BUILDINGS".equals(layer.layerType)) {
-                collisionLayer = layer;
-                System.out.println("충돌 레이어 설정됨: " + layer.name + " (" + layer.layerType + ")");
-                break;
-            }
-        }
+        collisionLayer = layers.stream()
+                .filter(layer -> "BUILDINGS".equals(layer.layerType))
+                .findFirst()
+                .orElse(null);
 
-        if (collisionLayer == null) {
+        if (collisionLayer != null) {
+            System.out.println("충돌 레이어 설정됨: " + collisionLayer.name + " (" + collisionLayer.layerType + ")");
+        } else {
             System.out.println("충돌 레이어를 찾을 수 없습니다. 모든 이동이 허용됩니다.");
         }
     }
@@ -1055,8 +995,7 @@ public class TmxParser {
         int index = tileY * collisionLayer.width + tileX;
         if (index >= collisionLayer.data.length) return true;
 
-        int gid = collisionLayer.data[index];
-        return gid != 0;
+        return collisionLayer.data[index] != 0;
     }
 
     private boolean isPixelBlocked(int pixelX, int pixelY) {
@@ -1077,31 +1016,20 @@ public class TmxParser {
         int playerWidth = sprite.getWidth();
         int playerHeight = sprite.getHeight();
 
-        // 플레이어 히트박스 (발 부분 중심)
-        int hitboxTopOffset = playerHeight - 23;
-        int hitboxBottomOffset = playerHeight - 1;
-        int hitboxLeftOffset = 4;
-        int hitboxRightOffset = playerWidth - 4;
-
-        int hitboxLeft = newX + hitboxLeftOffset;
-        int hitboxRight = newX + hitboxRightOffset;
-        int hitboxTop = newY + hitboxTopOffset;
-        int hitboxBottom = newY + hitboxBottomOffset;
+        // Player hitbox (focused on feet area)
+        int[] hitboxOffsets = {4, playerWidth - 4, playerHeight - 23, playerHeight - 1}; // left, right, top, bottom
 
         int[][] corners = {
-                {hitboxLeft, hitboxBottom},
-                {hitboxRight, hitboxBottom},
-                {hitboxLeft, hitboxTop},
-                {hitboxRight, hitboxTop}
+                {newX + hitboxOffsets[0], newY + hitboxOffsets[3]}, // bottom-left
+                {newX + hitboxOffsets[1], newY + hitboxOffsets[3]}, // bottom-right
+                {newX + hitboxOffsets[0], newY + hitboxOffsets[2]}, // top-left
+                {newX + hitboxOffsets[1], newY + hitboxOffsets[2]}  // top-right
         };
 
-        for (int[] corner : corners) {
-            if (isPixelBlocked(corner[0], corner[1])) return false;
-        }
-        return true;
+        return Arrays.stream(corners).noneMatch(corner -> isPixelBlocked(corner[0], corner[1]));
     }
 
-    // 맵 전환 관련 메서드들
+    // Map transition methods
     public void addMapTransition(String fromMap, int triggerX, int triggerY,
                                  String toMap, int destX, int destY) {
         mapTransitions.add(new MapTransition(toMap, triggerX, triggerY, destX, destY));
@@ -1113,19 +1041,14 @@ public class TmxParser {
         int playerTileX = (playerX - mapOffsetX) / (tileWidth * TILE_SCALE);
         int playerTileY = (playerY - mapOffsetY) / (tileHeight * TILE_SCALE);
 
-        for (MapTransition transition : mapTransitions) {
-            if (playerTileX == transition.triggerTileX &&
-                    playerTileY == transition.triggerTileY) {
-
-                System.out.println("맵 전환 트리거 발동: (" + playerTileX + "," + playerTileY +
-                        ") -> " + transition.targetMapPath);
-
-                switchToMap(transition.targetMapPath,
-                        transition.destinationTileX,
-                        transition.destinationTileY);
-                break;
-            }
-        }
+        mapTransitions.stream()
+                .filter(transition -> playerTileX == transition.triggerTileX && playerTileY == transition.triggerTileY)
+                .findFirst()
+                .ifPresent(transition -> {
+                    System.out.println("맵 전환 트리거 발동: (" + playerTileX + "," + playerTileY +
+                            ") -> " + transition.targetMapPath);
+                    switchToMap(transition.targetMapPath, transition.destinationTileX, transition.destinationTileY);
+                });
     }
 
     private void switchToMap(String targetMapPath, int destinationTileX, int destinationTileY) {
@@ -1145,25 +1068,18 @@ public class TmxParser {
                 canvas.revalidate();
                 canvas.repaint();
             });
-
         } else {
             System.err.println("맵 전환 실패: " + targetMapPath);
         }
     }
 
-    // 다중 TMX 파일 미리 로드
+    // Multiple TMX file preloading
     public void preloadMultipleTmxFiles(String[] tmxPaths) {
         System.out.println("=== 다중 TMX 파일 미리 로드 시작 ===");
 
-        for (String tmxPath : tmxPaths) {
-            File file = new File(tmxPath);
-            if (file.exists()) {
-                System.out.println("미리 로드 중: " + tmxPath);
-                preloadTmxData(tmxPath);
-            } else {
-                System.err.println("파일을 찾을 수 없음: " + tmxPath);
-            }
-        }
+        Arrays.stream(tmxPaths)
+                .filter(tmxPath -> new File(tmxPath).exists())
+                .forEach(this::preloadTmxData);
 
         System.out.println("=== 다중 TMX 파일 미리 로드 완료 ===");
         System.out.println("총 캐시된 타일 이미지: " + globalTileCache.size());
@@ -1171,87 +1087,13 @@ public class TmxParser {
 
     private void preloadTmxData(String tmxPath) {
         try {
-            List<Tileset> tempTilesets = new ArrayList<>();
-            List<Layer> tempLayers = new ArrayList<>();
+            System.out.println("미리 로드 중: " + tmxPath);
 
-            File tmxFile = new File(tmxPath);
-
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            DocumentBuilder builder = factory.newDocumentBuilder();
-            Document doc = builder.parse(tmxFile);
-            doc.getDocumentElement().normalize();
-
-            // 맵 속성 파싱
+            Document doc = parseXmlDocument(new File(tmxPath));
             Element mapElement = doc.getDocumentElement();
-            int tempMapWidth = Integer.parseInt(mapElement.getAttribute("width"));
-            int tempMapHeight = Integer.parseInt(mapElement.getAttribute("height"));
-            int tempTileWidth = Integer.parseInt(mapElement.getAttribute("tilewidth"));
-            int tempTileHeight = Integer.parseInt(mapElement.getAttribute("tileheight"));
 
-            // 타일셋 파싱
-            NodeList tilesetNodes = doc.getElementsByTagName("tileset");
-            for (int i = 0; i < tilesetNodes.getLength(); i++) {
-                Element tilesetElement = (Element) tilesetNodes.item(i);
-                Tileset tileset = new Tileset();
-
-                tileset.firstGid = Integer.parseInt(tilesetElement.getAttribute("firstgid"));
-                tileset.name = tilesetElement.getAttribute("name");
-                tileset.tileWidth = Integer.parseInt(tilesetElement.getAttribute("tilewidth"));
-                tileset.tileHeight = Integer.parseInt(tilesetElement.getAttribute("tileheight"));
-                tileset.tileCount = Integer.parseInt(tilesetElement.getAttribute("tilecount"));
-                tileset.columns = Integer.parseInt(tilesetElement.getAttribute("columns"));
-
-                NodeList imageNodes = tilesetElement.getElementsByTagName("image");
-                if (imageNodes.getLength() > 0) {
-                    Element imageElement = (Element) imageNodes.item(0);
-                    tileset.imagePath = imageElement.getAttribute("source");
-                    tileset.image = findImageByName(tileset.imagePath);
-
-                    if (tileset.image != null) {
-                        System.out.println("  타일셋 이미지 연결됨: " + tileset.imagePath);
-                    } else {
-                        System.err.println("  타일셋 이미지를 찾을 수 없습니다: " + tileset.imagePath);
-                    }
-                }
-
-                tempTilesets.add(tileset);
-            }
-
-            // 레이어 파싱
-            NodeList layerNodes = doc.getElementsByTagName("layer");
-            for (int i = 0; i < layerNodes.getLength(); i++) {
-                Element layerElement = (Element) layerNodes.item(i);
-                Layer layer = new Layer();
-
-                layer.name = layerElement.getAttribute("name");
-                layer.layerType = normalizeLayerName(layer.name);
-                layer.renderOrder = getLayerRenderOrder(layer.layerType);
-                layer.width = Integer.parseInt(layerElement.getAttribute("width"));
-                layer.height = Integer.parseInt(layerElement.getAttribute("height"));
-
-                String opacity = layerElement.getAttribute("opacity");
-                if (!opacity.isEmpty() && Float.parseFloat(opacity) == 0.0f) {
-                    layer.visible = false;
-                }
-
-                NodeList dataNodes = layerElement.getElementsByTagName("data");
-                if (dataNodes.getLength() > 0) {
-                    Element dataElement = (Element) dataNodes.item(0);
-                    String encoding = dataElement.getAttribute("encoding");
-
-                    if ("csv".equals(encoding)) {
-                        String csvData = dataElement.getTextContent().trim();
-                        String[] values = csvData.split(",");
-                        layer.data = new int[values.length];
-
-                        for (int j = 0; j < values.length; j++) {
-                            layer.data[j] = Integer.parseInt(values[j].trim());
-                        }
-                    }
-                }
-
-                tempLayers.add(layer);
-            }
+            List<Tileset> tempTilesets = parseTilesetsFromDocument(doc);
+            List<Layer> tempLayers = parseLayersFromDocument(doc);
 
             cacheTilesFromLayers(tempTilesets, tempLayers);
 
@@ -1263,93 +1105,98 @@ public class TmxParser {
         }
     }
 
-    private void cacheTilesFromLayers(List<Tileset> tempTilesets, List<Layer> tempLayers) {
-        Map<Integer, Tileset> tempGidToTilesetCache = new HashMap<>();
-        for (Tileset tileset : tempTilesets) {
-            for (int i = 0; i < tileset.tileCount; i++) {
-                int gid = tileset.firstGid + i;
-                tempGidToTilesetCache.put(gid, tileset);
-            }
+    private List<Tileset> parseTilesetsFromDocument(Document doc) {
+        List<Tileset> tempTilesets = new ArrayList<>();
+        NodeList tilesetNodes = doc.getElementsByTagName("tileset");
+
+        for (int i = 0; i < tilesetNodes.getLength(); i++) {
+            Element tilesetElement = (Element) tilesetNodes.item(i);
+            tempTilesets.add(createTileset(tilesetElement));
         }
 
-        int cachedCount = 0;
+        return tempTilesets;
+    }
 
-        for (Layer layer : tempLayers) {
-            if (!layer.visible) continue;
+    private List<Layer> parseLayersFromDocument(Document doc) {
+        List<Layer> tempLayers = new ArrayList<>();
+        NodeList layerNodes = doc.getElementsByTagName("layer");
 
-            Set<Integer> uniqueGids = new HashSet<>();
-            for (int gid : layer.data) {
-                if (gid > 0) uniqueGids.add(gid);
-            }
+        for (int i = 0; i < layerNodes.getLength(); i++) {
+            Element layerElement = (Element) layerNodes.item(i);
+            tempLayers.add(createLayer(layerElement));
+        }
 
-            for (int gid : uniqueGids) {
-                if (!globalTileCache.containsKey(gid)) {
+        return tempLayers;
+    }
+
+    private void cacheTilesFromLayers(List<Tileset> tempTilesets, List<Layer> tempLayers) {
+        Map<Integer, Tileset> tempGidToTilesetCache = buildTempTilesetCache(tempTilesets);
+
+        Set<Integer> uniqueGids = tempLayers.stream()
+                .filter(layer -> layer.visible)
+                .flatMap(layer -> Arrays.stream(layer.data).boxed())
+                .filter(gid -> gid > 0)
+                .collect(HashSet::new, Set::add, Set::addAll);
+
+        int cachedCount = (int) uniqueGids.stream()
+                .filter(gid -> !globalTileCache.containsKey(gid))
+                .mapToLong(gid -> {
                     BufferedImage tileImage = createTileImageFromTilesets(gid, tempGidToTilesetCache);
                     if (tileImage != null) {
                         globalTileCache.put(gid, tileImage);
-                        cachedCount++;
+                        return 1;
                     }
-                }
-            }
-        }
+                    return 0;
+                })
+                .sum();
 
         System.out.println("    새로 캐시된 타일: " + cachedCount + "개");
+    }
+
+    private Map<Integer, Tileset> buildTempTilesetCache(List<Tileset> tempTilesets) {
+        Map<Integer, Tileset> cache = new HashMap<>();
+        for (Tileset tileset : tempTilesets) {
+            for (int i = 0; i < tileset.tileCount; i++) {
+                cache.put(tileset.firstGid + i, tileset);
+            }
+        }
+        return cache;
     }
 
     private BufferedImage createTileImageFromTilesets(int gid, Map<Integer, Tileset> tempGidToTilesetCache) {
         if (gid == 0) return null;
 
-        // Path 레이어용 커스텀 타일 체크
         if (pathTileCustomizations.containsKey(gid)) {
             BufferedImage customTile = createCustomPathTileImage(gid);
-            if (customTile != null) {
-                return customTile;
-            }
-        }
-
-        if (tileOverrides.containsKey(gid)) {
-            return tileOverrides.get(gid);
+            if (customTile != null) return customTile;
         }
 
         Tileset tileset = tempGidToTilesetCache.get(gid);
         if (tileset == null || tileset.image == null) return null;
 
-        int tileId = gid - tileset.firstGid;
-        int tilesPerRow = tileset.columns;
-        int tileX = (tileId % tilesPerRow) * tileset.tileWidth;
-        int tileY = (tileId / tilesPerRow) * tileset.tileHeight;
-
-        try {
-            return tileset.image.getSubimage(tileX, tileY, tileset.tileWidth, tileset.tileHeight);
-        } catch (Exception e) {
-            return null;
-        }
+        return extractTileFromTileset(tileset, gid);
     }
 
-    // 4. 커스텀 Path 이미지 로드 메서드 (TmxParser 클래스에 추가)
-    private Map<String, BufferedImage[]> preExtractedGrassTiles = new HashMap<>();
-
     private void loadCustomPathImages() {
-        for (PathTileCustomization customization : pathTileCustomizations.values()) {
+        pathTileCustomizations.values().forEach(customization -> {
             if (!customPathImages.containsKey(customization.imagePath)) {
                 BufferedImage image = findImageByName(customization.imagePath);
                 if (image != null) {
                     customPathImages.put(customization.imagePath, image);
 
-                    // 잔디 타일이면 개별 타일들을 미리 추출
                     if (customization.isGrass) {
                         BufferedImage[] grassTiles = extractAllGrassTiles(image, customization);
                         preExtractedGrassTiles.put(customization.imagePath, grassTiles);
                     }
                 }
             }
-        }
+        });
     }
 
     private BufferedImage[] extractAllGrassTiles(BufferedImage sourceImage, PathTileCustomization customization) {
         int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
         int totalTiles = (sourceImage.getHeight() / customization.tileHeight) * tilesPerRow;
-        BufferedImage[] tiles = new BufferedImage[Math.min(totalTiles, 3)]; // 0,1,2 인덱스만
+        BufferedImage[] tiles = new BufferedImage[Math.min(totalTiles, 3)];
 
         for (int i = 0; i < tiles.length; i++) {
             int tileX = (i % tilesPerRow) * customization.tileWidth;
@@ -1360,7 +1207,6 @@ public class TmxParser {
         return tiles;
     }
 
-    // 5. 커스텀 Path 타일 이미지 생성 메서드 (TmxParser 클래스에 추가)
     private BufferedImage createCustomPathTileImage(int gid) {
         PathTileCustomization customization = pathTileCustomizations.get(gid);
         if (customization == null) return null;
@@ -1369,7 +1215,6 @@ public class TmxParser {
         if (sourceImage == null) return null;
 
         try {
-            // 타일셋에서 특정 인덱스의 타일 추출
             int tilesPerRow = sourceImage.getWidth() / customization.tileWidth;
             int tileX = (customization.targetTileIndex % tilesPerRow) * customization.tileWidth;
             int tileY = (customization.targetTileIndex / tilesPerRow) * customization.tileHeight;
@@ -1384,79 +1229,40 @@ public class TmxParser {
         }
     }
 
-    // 9. Path 레이어 전용 헬퍼 메서드들 (TmxParser 클래스에 추가)
-    public void clearPathCustomizations() {
-        pathTileCustomizations.clear();
-        customPathImages.clear();
-        System.out.println("모든 Path 타일 커스터마이징이 초기화되었습니다.");
-    }
-
-    public void removePathCustomization(int gid) {
-        if (pathTileCustomizations.remove(gid) != null) {
-            // 글로벌 캐시에서도 제거하여 다시 로드되도록 함
-            globalTileCache.remove(gid);
-            System.out.println("Path 타일 커스터마이징 제거됨: GID " + gid);
-        }
-    }
-
-    public boolean hasPathCustomization(int gid) {
-        return pathTileCustomizations.containsKey(gid);
-    }
-
-    // 10. Path 레이어의 GID 확인 헬퍼 메서드 (TmxParser 클래스에 추가)
     public void printPathLayerGids() {
-        for (Layer layer : layers) {
-            if ("PATHS".equals(layer.layerType)) {
-                System.out.println("=== Path 레이어 '" + layer.name + "' GID 정보 ===");
-                Set<Integer> uniqueGids = new HashSet<>();
+        layers.stream()
+                .filter(layer -> "PATHS".equals(layer.layerType))
+                .findFirst()
+                .ifPresentOrElse(layer -> {
+                    System.out.println("=== Path 레이어 '" + layer.name + "' GID 정보 ===");
+                    Set<Integer> uniqueGids = Arrays.stream(layer.data)
+                            .filter(gid -> gid > 0)
+                            .boxed()
+                            .collect(Collectors.toSet());
 
-                for (int y = 0; y < layer.height; y++) {
-                    for (int x = 0; x < layer.width; x++) {
-                        int index = y * layer.width + x;
-                        if (index < layer.data.length) {
-                            int gid = layer.data[index];
-                            if (gid > 0) {
-                                uniqueGids.add(gid);
-                            }
-                        }
-                    }
-                }
-
-                System.out.println("사용 중인 GID들: " + uniqueGids);
-                System.out.println("총 " + uniqueGids.size() + "개의 서로 다른 타일이 사용됨");
-                return; // 첫 번째 Path 레이어만 출력
-            }
-        }
-        System.out.println("Path 레이어를 찾을 수 없습니다.");
+                    System.out.println("사용 중인 GID들: " + uniqueGids);
+                    System.out.println("총 " + uniqueGids.size() + "개의 서로 다른 타일이 사용됨");
+                }, () -> System.out.println("Path 레이어를 찾을 수 없습니다."));
     }
 
-    // 11. 특정 위치의 Path 타일 GID 확인 메서드 (TmxParser 클래스에 추가)
     public int getPathTileGidAt(int tileX, int tileY) {
-        for (Layer layer : layers) {
-            if ("PATHS".equals(layer.layerType)) {
-                if (tileX >= 0 && tileX < layer.width && tileY >= 0 && tileY < layer.height) {
+        return layers.stream()
+                .filter(layer -> "PATHS".equals(layer.layerType))
+                .findFirst()
+                .filter(layer -> tileX >= 0 && tileX < layer.width && tileY >= 0 && tileY < layer.height)
+                .map(layer -> {
                     int index = tileY * layer.width + tileX;
-                    if (index < layer.data.length) {
-                        return layer.data[index];
-                    }
-                }
-                break; // 첫 번째 Path 레이어만 확인
-            }
-        }
-        return 0; // GID 0은 빈 타일
+                    return index < layer.data.length ? layer.data[index] : 0;
+                })
+                .orElse(0);
     }
 
-    // Getter 메서드들
-    public void setCurrentMapPath(String mapPath) {
-        this.currentMapPath = mapPath;
-    }
+    // Getters
+    public void setCurrentMapPath(String mapPath) { this.currentMapPath = mapPath; }
 
     public String extractMapName(String filePath) {
         String fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
-        if (fileName.contains(".")) {
-            fileName = fileName.substring(0, fileName.lastIndexOf('.'));
-        }
-        return fileName;
+        return fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
     }
 
     public Camera getCamera() { return camera; }
