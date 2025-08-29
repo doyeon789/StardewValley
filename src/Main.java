@@ -49,12 +49,12 @@ public class Main {
                 0, 15, 20, RenderMode.ASPECT_FILL,0,0,0, true);
 
         //small Bush
-        viewer.addPathTileCustomization(91,"resource/TileSheets/bushes.png",
-                56, 16, 32, RenderMode.ASPECT_FILL,0,0,0, false);
+        //viewer.addPathTileCustomization(91,"resource/TileSheets/bushes.png",
+        //        56, 16, 32, RenderMode.ASPECT_FILL,0,0,0, false);
 
         //Big Bush
-        viewer.addPathTileCustomization(90,"resource/TileSheets/bushes.png",
-                0, 32, 45, RenderMode.ORIGINAL_SIZE,0,0,0, false);
+        //viewer.addPathTileCustomization(90,"resource/TileSheets/bushes.png",
+        //        0, 32, 45, RenderMode.ORIGINAL_SIZE,0,0,0, false);
 
         // Nothing
         viewer.addPathTileCustomization(94,"resource/Maps/paths.png",
@@ -63,11 +63,11 @@ public class Main {
                 0, 16, 16, RenderMode.ASPECT_FIT, 0,0,0, false);
 
         //Big Tree Stump
-        viewer.addPathTileCustomization(86,"resource/Maps/springobjects.png",
-                156, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,-16, false);
+        //viewer.addPathTileCustomization(86,"resource/Maps/springobjects.png",
+        //        156, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,-16, false);
         //Big Stone
-        viewer.addPathTileCustomization(85,"resource/Maps/springobjects.png",
-               168, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,0, false);
+        //viewer.addPathTileCustomization(85,"resource/Maps/springobjects.png",
+        //       168, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,0, false);
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
     }
