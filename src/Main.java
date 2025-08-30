@@ -49,8 +49,8 @@ public class Main {
                 0, 15, 20, RenderMode.ASPECT_FILL,0,0,0, true);
 
         //small Bush
-        viewer.addPathTileCustomization(91,"resource/TileSheets/bushes.png",
-                56, 16, 32, RenderMode.ASPECT_FILL,0,0,0, false);
+        //viewer.addPathTileCustomization(91,"resource/TileSheets/bushes.png",
+        //        56, 16, 32, RenderMode.ASPECT_FILL,0,0,0, false);
 
         //Big Bush
         viewer.addPathTileCustomization(90,"resource/TileSheets/bushes.png",
@@ -71,6 +71,16 @@ public class Main {
         //Big Stone
         viewer.addPathTileCustomization(85,"resource/Maps/springobjects.png",
                168, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,0, false);
+
+
+        viewer.addTreeTileCustomization(91, "resource/TerrainFeatures/tree1_spring.png",
+                30, 0,
+                16, 32,
+                48, 97,                     // 상단 크기
+                RenderMode.ORIGINAL_SIZE,
+                0, 0,        // 하단 오프셋
+                0, 0,                       // 상단 오프셋 (중앙 정렬용)
+                0);                                      // startY
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
     }

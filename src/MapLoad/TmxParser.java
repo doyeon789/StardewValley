@@ -497,6 +497,7 @@ public class TmxParser {
         new Thread(() -> {
             System.out.println("타일 이미지 캐싱 시작...");
             loadCustomPathImages();
+            loadCustomTreeImages();  // 추가
             int cachedCount = cacheAllVisibleTiles();
             System.out.println("타일 이미지 캐싱 완료: " + cachedCount + " tiles");
             SwingUtilities.invokeLater(canvas::repaint);
@@ -531,9 +532,17 @@ public class TmxParser {
     private BufferedImage createTileImage(int gid) {
         if (gid == 0) return null;
 
+        // Check for path tile customizations
         if (pathTileCustomizations.containsKey(gid)) {
             BufferedImage customTile = createCustomPathTileImage(gid);
             if (customTile != null) return customTile;
+        }
+
+        // Check for tree tile customizations - ADD THIS
+        if (treeTileCustomizations.containsKey(gid)) {
+            // For tree tiles, we'll return a special marker or handle differently
+            // since trees need special rendering (bottom + top parts)
+            return createTreeTileImage(gid, true); // Return bottom part as default
         }
 
         Tileset tileset = findTilesetForGid(gid);
@@ -663,9 +672,6 @@ public class TmxParser {
                 int gid = layer.data[index];
                 if (gid == 0) continue;
 
-                BufferedImage tileImage = globalTileCache.get(gid);
-                if (tileImage == null) continue;
-
                 int screenX, screenY;
                 if (useCamera) {
                     screenX = camera.worldToScreenX(x * scaledTileWidth);
@@ -674,6 +680,15 @@ public class TmxParser {
                     screenX = mapOffsetX + x * scaledTileWidth;
                     screenY = mapOffsetY + y * scaledTileHeight;
                 }
+
+                // 나무 타일 특별 처리
+                if (treeTileCustomizations.containsKey(gid)) {
+                    renderTreeTile(g2d, screenX, screenY, scaledTileWidth, scaledTileHeight, gid);
+                    continue; // 일반 렌더링 건너뛰기
+                }
+
+                BufferedImage tileImage = globalTileCache.get(gid);
+                if (tileImage == null) continue;
 
                 if (pathTileCustomizations.containsKey(gid)) {
                     renderCustomPathTile(g2d, tileImage, screenX, screenY,
@@ -688,18 +703,25 @@ public class TmxParser {
     private void renderCustomPathTile(Graphics2D g2d, BufferedImage tileImage,
                                       int screenX, int screenY, int tileWidth, int tileHeight,
                                       int gid, int tileX, int tileY) {
-        PathTileCustomization customization = pathTileCustomizations.get(gid);
-        if (customization == null) {
-            g2d.drawImage(tileImage, screenX, screenY, tileWidth, tileHeight, null);
+        // Path 커스터마이징 처리
+        if (pathTileCustomizations.containsKey(gid)) {
+            PathTileCustomization customization = pathTileCustomizations.get(gid);
+            if (customization.isGrass) {
+                grassRenderer.renderGrassTile(g2d, screenX, screenY, tileWidth, tileHeight, gid, tileX, tileY, customization);
+                return;
+            }
+            renderCustomTileWithMode(g2d, tileImage, screenX, screenY, tileWidth, tileHeight, customization, gid);
             return;
         }
 
-        if (customization.isGrass) {
-            grassRenderer.renderGrassTile(g2d, screenX, screenY, tileWidth, tileHeight, gid, tileX, tileY, customization);
+        // Tree 커스터마이징 처리
+        if (treeTileCustomizations.containsKey(gid)) {
+            renderTreeTile(g2d, screenX, screenY, tileWidth, tileHeight, gid);
             return;
         }
 
-        renderCustomTileWithMode(g2d, tileImage, screenX, screenY, tileWidth, tileHeight, customization, gid);
+        // 기본 타일 렌더링
+        g2d.drawImage(tileImage, screenX, screenY, tileWidth, tileHeight, null);
     }
 
     private void renderCustomTileWithMode(Graphics2D g2d, BufferedImage tileImage,
@@ -1026,8 +1048,17 @@ public class TmxParser {
                     if (customization.isGrass) {
                         grassRenderer.preExtractGrassTiles(customization.imagePath, customization);
                     }
+                }
+            }
+        });
 
-
+        // Load tree images
+        treeTileCustomizations.values().forEach(customization -> {
+            if (!customTreeImages.containsKey(customization.imagePath)) {
+                BufferedImage image = findImageByName(customization.imagePath);
+                if (image != null) {
+                    customTreeImages.put(customization.imagePath, image);
+                    System.out.println("Tree 이미지 로드됨: " + customization.imagePath);
                 }
             }
         });
@@ -1156,6 +1187,192 @@ public class TmxParser {
         }
 
         System.out.println("오브젝트 추가: (" + tileX + "," + tileY + ") -> " + imagePath);
+    }
+
+    public static class TreeTileCustomization {
+        final String imagePath;
+        final int bottomTileIndex, topTileIndex;
+        final int bottomTileWidth, bottomTileHeight;
+        final int topTileWidth, topTileHeight;
+        final int bottomOffsetX, bottomOffsetY;
+        final int topOffsetX, topOffsetY;
+        final int startY;
+        final PathTileCustomization.RenderMode renderMode;  // 기존 RenderMode 사용
+
+        TreeTileCustomization(String imagePath, int bottomTileIndex, int topTileIndex,
+                              int bottomTileWidth, int bottomTileHeight,
+                              int topTileWidth, int topTileHeight,
+                              PathTileCustomization.RenderMode renderMode,
+                              int bottomOffsetX, int bottomOffsetY,
+                              int topOffsetX, int topOffsetY, int startY) {
+            this.imagePath = imagePath;
+            this.bottomTileIndex = bottomTileIndex;
+            this.topTileIndex = topTileIndex;
+            this.bottomTileWidth = bottomTileWidth;
+            this.bottomTileHeight = bottomTileHeight;
+            this.topTileWidth = topTileWidth;
+            this.topTileHeight = topTileHeight;
+            this.renderMode = renderMode;
+            this.bottomOffsetX = bottomOffsetX;
+            this.bottomOffsetY = bottomOffsetY;
+            this.topOffsetX = topOffsetX;
+            this.topOffsetY = topOffsetY;
+            this.startY = startY;
+        }
+    }
+
+    private final Map<Integer, TreeTileCustomization> treeTileCustomizations = new HashMap<>();
+    private final Map<String, BufferedImage> customTreeImages = new HashMap<>();
+
+    public void addTreeTileCustomization(int gid, String imagePath,
+                                         int bottomTileIndex, int topTileIndex,
+                                         int bottomTileWidth, int bottomTileHeight,
+                                         int topTileWidth, int topTileHeight,
+                                         PathTileCustomization.RenderMode renderMode,
+                                         int bottomOffsetX, int bottomOffsetY,
+                                         int topOffsetX, int topOffsetY, int startY) {
+
+        treeTileCustomizations.put(gid, new TreeTileCustomization(imagePath,
+                bottomTileIndex, topTileIndex,
+                bottomTileWidth, bottomTileHeight,
+                topTileWidth, topTileHeight, renderMode,
+                bottomOffsetX, bottomOffsetY,
+                topOffsetX, topOffsetY, startY));
+
+        System.out.println("Tree 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath +
+                " [Bottom: " + bottomTileIndex + ", Top: " + topTileIndex + "]");
+    }
+
+    private void loadCustomTreeImages() {
+        treeTileCustomizations.values().forEach(customization -> {
+            if (!customTreeImages.containsKey(customization.imagePath)) {
+                BufferedImage image = findImageByName(customization.imagePath);
+                if (image != null) {
+                    customTreeImages.put(customization.imagePath, image);
+                    System.out.println("Tree 이미지 로드됨: " + customization.imagePath);
+                }
+            }
+        });
+    }
+
+    private BufferedImage createTreeTileImage(int gid, boolean isBottom) {
+        TreeTileCustomization customization = treeTileCustomizations.get(gid);
+        if (customization == null) return null;
+
+        BufferedImage sourceImage = customTreeImages.get(customization.imagePath);
+        if (sourceImage == null) return null;
+
+        try {
+            int targetIndex, tileWidth, tileHeight;
+
+            if (isBottom) {
+                targetIndex = customization.bottomTileIndex;
+                tileWidth = customization.bottomTileWidth;
+                tileHeight = customization.bottomTileHeight;
+            } else {
+                targetIndex = customization.topTileIndex;
+                tileWidth = customization.topTileWidth;
+                tileHeight = customization.topTileHeight;
+            }
+
+            int tilesPerRow = sourceImage.getWidth() / tileWidth;
+            int tileX = (targetIndex % tilesPerRow) * tileWidth;
+            int tileY = (targetIndex / tilesPerRow) * tileHeight + customization.startY;
+
+            // 경계 검사 추가
+            if (tileX < 0 || tileY < 0 ||
+                    tileX + tileWidth > sourceImage.getWidth() ||
+                    tileY + tileHeight > sourceImage.getHeight()) {
+
+                System.err.println("Tree 타일 경계 초과: GID " + gid +
+                        " (isBottom: " + isBottom + ")" +
+                        " - 이미지 크기: " + sourceImage.getWidth() + "x" + sourceImage.getHeight() +
+                        " - 요청 영역: (" + tileX + "," + tileY + "," +
+                        (tileX + tileWidth) + "," + (tileY + tileHeight) + ")");
+                return null;
+            }
+
+            return sourceImage.getSubimage(tileX, tileY, tileWidth, tileHeight);
+        } catch (Exception e) {
+            System.err.println("Tree 타일 생성 실패: GID " + gid + " (isBottom: " + isBottom + ") - " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void renderTreeTile(Graphics2D g2d, int screenX, int screenY,
+                                int tileWidth, int tileHeight, int gid) {
+        TreeTileCustomization customization = treeTileCustomizations.get(gid);
+        if (customization == null) return;
+
+        // 하단 타일 렌더링 (줄기)
+        BufferedImage bottomTile = createTreeTileImage(gid, true);
+        if (bottomTile != null) {
+            renderTreeTileWithOffset(g2d, bottomTile, screenX, screenY,
+                    tileWidth, tileHeight, customization, true);
+        }
+
+        // 상단 타일 렌더링 (잎사귀) - 한 타일 위쪽
+        BufferedImage topTile = createTreeTileImage(gid, false);
+        if (topTile != null) {
+            int topScreenY = screenY - tileHeight;
+            renderTreeTileWithOffset(g2d, topTile, screenX, topScreenY,
+                    tileWidth, tileHeight, customization, false);
+        }
+    }
+
+    private void renderTreeTileWithOffset(Graphics2D g2d, BufferedImage tileImage,
+                                          int screenX, int screenY, int tileWidth, int tileHeight,
+                                          TreeTileCustomization customization, boolean isBottom) {
+
+        int offsetX = isBottom ? customization.bottomOffsetX : customization.topOffsetX;
+        int offsetY = isBottom ? customization.bottomOffsetY : customization.topOffsetY;
+        int sourceTileWidth = isBottom ? customization.bottomTileWidth : customization.topTileWidth;
+        int sourceTileHeight = isBottom ? customization.bottomTileHeight : customization.topTileHeight;
+
+        int renderX = screenX + offsetX;
+        int renderY = screenY + offsetY;
+        int renderWidth = tileWidth;
+        int renderHeight = tileHeight;
+
+        switch (customization.renderMode) {
+            case STRETCH:
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+
+            case ASPECT_FIT:
+                double scale = Math.min((double) tileWidth / sourceTileWidth, (double) tileHeight / sourceTileHeight);
+                renderWidth = (int) (sourceTileWidth * scale);
+                renderHeight = (int) (sourceTileHeight * scale);
+                renderX = screenX + (tileWidth - renderWidth) / 2 + offsetX;
+                renderY = screenY + (tileHeight - renderHeight) / 2 + offsetY;
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+
+            case ASPECT_FILL:
+                scale = Math.max((double) tileWidth / sourceTileWidth, (double) tileHeight / sourceTileHeight);
+                renderWidth = (int) (sourceTileWidth * scale);
+                renderHeight = (int) (sourceTileHeight * scale);
+                renderX = screenX + offsetX;
+                renderY = screenY + tileHeight - renderHeight + offsetY;
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+
+            case ORIGINAL_SIZE:
+                renderWidth = sourceTileWidth * TILE_SCALE;
+                renderHeight = sourceTileHeight * TILE_SCALE;
+                renderX = screenX + offsetX;
+                renderY = screenY + tileHeight - renderHeight + offsetY;
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+
+            case CENTER:
+                renderWidth = sourceTileWidth;
+                renderHeight = sourceTileHeight;
+                renderX = screenX + (tileWidth - renderWidth) / 2 + offsetX;
+                renderY = screenY + (tileHeight - renderHeight) / 2 + offsetY;
+                g2d.drawImage(tileImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+        }
     }
 
     public Camera getCamera() { return camera; }
