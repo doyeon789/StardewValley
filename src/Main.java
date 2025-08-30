@@ -16,6 +16,7 @@ public class Main {
                     "resource/FarmHouse.tmx",
             };
 
+            setupObjects(viewer);
             setupPathCustomizations(viewer);
 
             // 첫 번째 맵(Farm.tmx) 로드 및 표시
@@ -43,18 +44,17 @@ public class Main {
 
     private static void setupPathCustomizations(TmxParser viewer) {
         viewer.printPathLayerGids();
-
         //Grass
         viewer.addPathTileCustomization(87, "resource/TerrainFeatures/grass.png",
                 0, 15, 20, RenderMode.ASPECT_FILL,0,0,0, true);
 
         //small Bush
-        //viewer.addPathTileCustomization(91,"resource/TileSheets/bushes.png",
-        //        56, 16, 32, RenderMode.ASPECT_FILL,0,0,0, false);
+        viewer.addPathTileCustomization(91,"resource/TileSheets/bushes.png",
+                56, 16, 32, RenderMode.ASPECT_FILL,0,0,0, false);
 
         //Big Bush
-        //viewer.addPathTileCustomization(90,"resource/TileSheets/bushes.png",
-        //        0, 32, 45, RenderMode.ORIGINAL_SIZE,0,0,0, false);
+        viewer.addPathTileCustomization(90,"resource/TileSheets/bushes.png",
+                0, 32, 45, RenderMode.ORIGINAL_SIZE,0,0,0, false);
 
         // Nothing
         viewer.addPathTileCustomization(94,"resource/Maps/paths.png",
@@ -63,13 +63,27 @@ public class Main {
                 0, 16, 16, RenderMode.ASPECT_FIT, 0,0,0, false);
 
         //Big Tree Stump
-        //viewer.addPathTileCustomization(86,"resource/Maps/springobjects.png",
-        //        156, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,-16, false);
+        viewer.addPathTileCustomization(86,"resource/Maps/springobjects.png",
+                156, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,-16, false);
+        //Big Tree
+        viewer.addPathTileCustomization(84,"resource/Maps/springobjects.png",
+                157, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,-16, false);
         //Big Stone
-        //viewer.addPathTileCustomization(85,"resource/Maps/springobjects.png",
-        //       168, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,0, false);
+        viewer.addPathTileCustomization(85,"resource/Maps/springobjects.png",
+               168, 32, 32, RenderMode.ORIGINAL_SIZE,0,0,0, false);
 
         System.out.println("Path 타일 커스터마이징 설정 완료");
+    }
+
+    private static void setupObjects(TmxParser viewer) {
+        viewer.addObjectAtPosition(58, 16, "resource/Buildings/houses.png",
+                0, 272, 144, RenderMode.ORIGINAL_SIZE, 0, 0, 0);
+        viewer.addObjectAtPosition(68, 16, "resource/Buildings/Mailbox.png",
+                0, 16, 32, RenderMode.ORIGINAL_SIZE, 0, 0, 0);
+        viewer.addObjectAtPosition(71, 14, "resource/Buildings/Shipping Bin.png",
+                0, 32, 32, RenderMode.ORIGINAL_SIZE, 0, 0, 0);
+
+        System.out.println("오브젝트 배치 설정 완료");
     }
 
     private static void setupMapTransitions(TmxParser viewer) {

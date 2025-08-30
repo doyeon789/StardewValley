@@ -67,17 +67,6 @@ public class TmxParser {
         final boolean isGrass;
 
         public enum RenderMode { STRETCH, ASPECT_FIT, ASPECT_FILL, ORIGINAL_SIZE, CENTER }
-
-        PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
-                              RenderMode renderMode, boolean isGrass) {
-            this(imagePath, targetTileIndex, tileWidth, tileHeight, renderMode, 0, 0, 0, isGrass);
-        }
-
-        PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
-                              RenderMode renderMode, int offsetX, int offsetY, boolean isGrass) {
-            this(imagePath, targetTileIndex, tileWidth, tileHeight, renderMode, offsetX, offsetY, 0, isGrass);
-        }
-
         // 새로운 생성자 (startY 지원)
         PathTileCustomization(String imagePath, int targetTileIndex, int tileWidth, int tileHeight,
                               RenderMode renderMode, int offsetX, int offsetY, int startY, boolean isGrass) {
@@ -93,6 +82,29 @@ public class TmxParser {
         }
     }
 
+    private static class PositionedObject {
+        final int tileX, tileY;
+        final String imagePath;
+        final int targetTileIndex, tileWidth, tileHeight;
+        final PathTileCustomization.RenderMode renderMode;
+        final int offsetX, offsetY, startY;
+
+        PositionedObject(int tileX, int tileY, String imagePath, int targetTileIndex,
+                         int tileWidth, int tileHeight, PathTileCustomization.RenderMode renderMode,
+                         int offsetX, int offsetY, int startY) {
+            this.tileX = tileX;
+            this.tileY = tileY;
+            this.imagePath = imagePath;
+            this.targetTileIndex = targetTileIndex;
+            this.tileWidth = tileWidth;
+            this.tileHeight = tileHeight;
+            this.renderMode = renderMode;
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
+            this.startY = startY;
+        }
+    }
+
     private class TileMapCanvas extends JComponent {
         @Override
         protected void paintComponent(Graphics g) {
@@ -100,7 +112,6 @@ public class TmxParser {
             renderTileMapWithCamera(g);
         }
     }
-
     // Fields
     private int mapWidth, mapHeight, tileWidth, tileHeight;
     private int mapOffsetX = 0, mapOffsetY = 0;
@@ -123,6 +134,8 @@ public class TmxParser {
 
     private String currentMapPath = "";
     private Layer collisionLayer = null;
+
+    private final List<PositionedObject> positionedObjects = new ArrayList<>();
 
     public TmxParser() {
         preloadAllPngImages();
@@ -617,6 +630,10 @@ public class TmxParser {
 
             renderLayerTiles(g2d, layer, bounds, scaledTileWidth, scaledTileHeight, true);
         }
+
+        if (!frontLayersOnly) {
+            renderPositionedObjects(g2d, scaledTileWidth, scaledTileHeight, true);
+        }
     }
 
     private void renderLayersFixed(Graphics2D g2d, int scaledTileWidth, int scaledTileHeight, boolean frontLayersOnly) {
@@ -629,6 +646,10 @@ public class TmxParser {
             if (frontLayersOnly != isFrontLayer) continue;
 
             renderLayerTiles(g2d, layer, fullBounds, scaledTileWidth, scaledTileHeight, false);
+        }
+
+        if (!frontLayersOnly) {
+            renderPositionedObjects(g2d, scaledTileWidth, scaledTileHeight, true);
         }
     }
 
@@ -743,17 +764,8 @@ public class TmxParser {
     public void addPathTileCustomization(int gid, String imagePath, int targetTileIndex,
                                          int tileWidth, int tileHeight,
                                          PathTileCustomization.RenderMode renderMode,
-                                         int offsetX, int offsetY, boolean isGrass) {
-        pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex,
-                tileWidth, tileHeight, renderMode, offsetX, offsetY, 0, isGrass));
-        System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath +
-                " [모드: " + renderMode + ", 오프셋: (" + offsetX + "," + offsetY + "), 잔디: " + isGrass + "]");
-    }
-
-    public void addPathTileCustomization(int gid, String imagePath, int targetTileIndex,
-                                         int tileWidth, int tileHeight,
-                                         PathTileCustomization.RenderMode renderMode,
                                          int offsetX, int offsetY, int startY, boolean isGrass) {
+
         pathTileCustomizations.put(gid, new PathTileCustomization(imagePath, targetTileIndex,
                 tileWidth, tileHeight, renderMode, offsetX, offsetY, startY, isGrass));
         System.out.println("Path 타일 커스터마이징 추가: GID " + gid + " -> " + imagePath +
@@ -1014,6 +1026,8 @@ public class TmxParser {
                     if (customization.isGrass) {
                         grassRenderer.preExtractGrassTiles(customization.imagePath, customization);
                     }
+
+
                 }
             }
         });
@@ -1075,6 +1089,73 @@ public class TmxParser {
     public String extractMapName(String filePath) {
         String fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
         return fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+    }
+
+    // renderLayerTiles 메서드 끝에 추가하거나
+    private void renderPositionedObjects(Graphics2D g2d, int scaledTileWidth, int scaledTileHeight, boolean useCamera) {
+        for (PositionedObject obj : positionedObjects) {
+            BufferedImage objImage = createPositionedObjectImage(obj);
+            if (objImage == null) continue;
+
+            int screenX, screenY;
+            if (useCamera) {
+                screenX = camera.worldToScreenX(obj.tileX * scaledTileWidth);
+                screenY = camera.worldToScreenY(obj.tileY * scaledTileHeight);
+            } else {
+                screenX = mapOffsetX + obj.tileX * scaledTileWidth;
+                screenY = mapOffsetY + obj.tileY * scaledTileHeight;
+            }
+
+            renderObjectWithMode(g2d, objImage, screenX, screenY, scaledTileWidth, scaledTileHeight, obj);
+        }
+    }
+
+    private BufferedImage createPositionedObjectImage(PositionedObject obj) {
+        BufferedImage sourceImage = customPathImages.get(obj.imagePath);
+        if (sourceImage == null) return null;
+
+        try {
+            int tilesPerRow = sourceImage.getWidth() / obj.tileWidth;
+            int tileX = (obj.targetTileIndex % tilesPerRow) * obj.tileWidth;
+            int tileY = (obj.targetTileIndex / tilesPerRow) * obj.tileHeight + obj.startY;
+
+            return sourceImage.getSubimage(tileX, tileY, obj.tileWidth, obj.tileHeight);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void renderObjectWithMode(Graphics2D g2d, BufferedImage objImage, int screenX, int screenY,
+                                      int tileWidth, int tileHeight, PositionedObject obj) {
+        int renderX = screenX + obj.offsetX;
+        int renderY = screenY + obj.offsetY;
+
+        switch (obj.renderMode) {
+            case ORIGINAL_SIZE:
+                int renderWidth = obj.tileWidth * TILE_SCALE;
+                int renderHeight = obj.tileHeight * TILE_SCALE;
+                renderY = screenY + tileHeight - renderHeight + obj.offsetY;
+                g2d.drawImage(objImage, renderX, renderY, renderWidth, renderHeight, null);
+                break;
+            // 다른 모드들도 필요시 추가
+        }
+    }
+
+    public void addObjectAtPosition(int tileX, int tileY, String imagePath,
+                                    int targetTileIndex, int tileWidth, int tileHeight,
+                                    PathTileCustomization.RenderMode renderMode,
+                                    int offsetX, int offsetY, int startY) {
+        positionedObjects.add(new PositionedObject(tileX, tileY, imagePath, targetTileIndex,
+                tileWidth, tileHeight, renderMode, offsetX, offsetY, startY));
+
+        if (!customPathImages.containsKey(imagePath)) {
+            BufferedImage image = findImageByName(imagePath);
+            if (image != null) {
+                customPathImages.put(imagePath, image);
+            }
+        }
+
+        System.out.println("오브젝트 추가: (" + tileX + "," + tileY + ") -> " + imagePath);
     }
 
     public Camera getCamera() { return camera; }
